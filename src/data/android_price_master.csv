@@ -1,0 +1,7 @@
+ID,ステータス,メーカー,機種名,型番,修理内容,修理費用,パーツ仕入れ価格,購入先名,購入先URL,最終確認日
+APM-001,使用中,Google Pixel,Pixel 7a,G82U8,画面修理,22800,12400,Android Parts Hub,https://example.com/pixel-7a-display,2026-05-01
+APM-002,使用中,Google Pixel,Pixel 7a,G82U8,バッテリー交換,12800,4200,Android Parts Hub,https://example.com/pixel-7a-battery,2026-05-01
+APM-003,使用中,Xperia,Xperia 10 V,XQ-DC44,画面修理,24800,14900,Mobile Repair Supply,https://example.com/xperia-10-v-display,2026-04-25
+APM-004,使用中,Galaxy,Galaxy S22,SCG13,バッテリー交換,13800,5100,Galaxy Parts Partner,https://example.com/galaxy-s22-battery,2026-04-20
+APM-005,停止中,AQUOS,AQUOS sense7,SH-53C,画面修理,19800,9800,Sharp Compatible Parts,https://example.com/aquos-sense7-display,2026-04-10
+APM-006,使用中,OPPO,Reno7 A,CPH2353,背面修理,11800,3900,OPPO Parts Desk,https://example.com/oppo-reno7a-back-panel,2026-04-12
