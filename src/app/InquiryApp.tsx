@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type {
+  AndroidModelRepairSettingItem,
   AndroidPriceMasterItem,
   InitialData,
   InquiryCategory,
@@ -47,10 +48,10 @@ type AdminReportForm = {
 
 type AdminReportType = (typeof adminReportTypes)[number];
 type UsageGuideTab = "common" | "android" | "switch";
-type MasterManagementTab = "Android" | "Switch" | "修理項目";
+type MasterManagementTab = "Android" | "Switch" | "修理メニュー";
 type AndroidMasterMode = "新規機種追加" | "既存データ変更";
 type SwitchMasterMode = "新規項目追加" | "既存データ変更";
-type RepairItemMode = "修理項目追加" | "修理項目変更";
+type RepairItemMode = "修理メニュー追加" | "既存メニュー変更";
 
 type AndroidMasterForm = {
   rowNumber?: number;
@@ -70,6 +71,15 @@ type AndroidMasterForm = {
   sleepButtonStatus: string;
   volumeButtonManualPrice: string;
   volumeButtonStatus: string;
+  note: string;
+  receptionStatus: string;
+  additionalRepairSettings: AndroidModelRepairSettingForm[];
+};
+
+type AndroidModelRepairSettingForm = {
+  repairItemName: string;
+  repairStatus: string;
+  customPrice: string;
   note: string;
   receptionStatus: string;
 };
@@ -169,6 +179,15 @@ type AndroidRepairDefinition = {
   statusKey: keyof AndroidPriceMasterItem;
 };
 
+type DynamicAndroidRepairDefinition = {
+  key: string;
+  label: string;
+  repairItemName: string;
+  standardPrice: number | string;
+  note: string;
+  receptionStatus: string;
+};
+
 type NormalizedOption = {
   key: string;
   label: string;
@@ -232,12 +251,19 @@ const adminReportTypes = [
   "表示不具合",
   "その他",
 ] as const;
-const masterManagementTabs: MasterManagementTab[] = ["Android", "Switch", "修理項目"];
+const masterManagementTabs: MasterManagementTab[] = ["Android", "Switch", "修理メニュー"];
 const androidMasterModes: AndroidMasterMode[] = ["新規機種追加", "既存データ変更"];
 const switchMasterModes: SwitchMasterMode[] = ["新規項目追加", "既存データ変更"];
-const repairItemModes: RepairItemMode[] = ["修理項目追加", "修理項目変更"];
+const repairItemModes: RepairItemMode[] = ["修理メニュー追加", "既存メニュー変更"];
 const supportStatusOptions = ["店舗対応可", "要確認", "委託対応", "非対応"];
 const manualPriceStatusOption = "料金を手動設定";
+const androidAdditionalRepairStatusOptions = [
+  "店舗対応可",
+  "要確認",
+  "外注必要",
+  "非対応",
+  manualPriceStatusOption,
+];
 const manualPriceStoredStatus = "料金手動設定";
 const manualPriceStoredPrefix = "料金手動設定:";
 const receptionStatusOptions = ["受付可", "要確認", "受付停止"];
@@ -545,16 +571,31 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
   }, [androidCandidates, selectedAndroidCandidate]);
 
   const androidRepairTypes = useMemo(() => {
+    const dynamicRepairDefinitions = createAvailableDynamicAndroidRepairDefinitions(
+      masterData.repairItemMaster,
+      masterData.androidModelRepairSettings,
+      selectedAndroidModel,
+    );
+    const repairTypes = [
+      ...androidRepairDefinitions.map((item) => item.label),
+      ...dynamicRepairDefinitions.map((item) => item.label),
+    ];
+
     if (isOtherAndroidManufacturer) {
-      return androidRepairDefinitions.map((item) => item.label);
+      return repairTypes;
     }
 
     if (!selectedAndroidModel) {
       return [];
     }
 
-    return androidRepairDefinitions.map((item) => item.label);
-  }, [isOtherAndroidManufacturer, selectedAndroidModel]);
+    return repairTypes;
+  }, [
+    isOtherAndroidManufacturer,
+    masterData.androidModelRepairSettings,
+    masterData.repairItemMaster,
+    selectedAndroidModel,
+  ]);
 
   const switchModels = useMemo(
     () => uniqueValues(switchRows.map((item) => item.modelName)),
@@ -570,23 +611,42 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
 
   const androidQuote = useMemo(() => {
     if (isOtherAndroidManufacturer && form.repairType) {
-      return getOtherAndroidRepairEstimate(form.repairType);
+      return getOtherAndroidRepairEstimate(
+        form.repairType,
+        masterData.repairItemMaster,
+      );
     }
 
     if (!selectedAndroidModel || !form.repairType) {
       return undefined;
     }
 
-    const definition = androidRepairDefinitions.find(
+    const fixedDefinition = androidRepairDefinitions.find(
       (item) => item.label === form.repairType,
     );
 
-    if (!definition) {
-      return undefined;
+    if (fixedDefinition) {
+      return getAndroidRepairEstimate(selectedAndroidModel, fixedDefinition);
     }
 
-    return getAndroidRepairEstimate(selectedAndroidModel, definition);
-  }, [form.repairType, isOtherAndroidManufacturer, selectedAndroidModel]);
+    const dynamicDefinition = createDynamicAndroidRepairDefinitions(
+      masterData.repairItemMaster,
+    ).find((item) => item.label === form.repairType);
+
+    return dynamicDefinition
+      ? getDynamicAndroidRepairEstimate(
+          selectedAndroidModel,
+          dynamicDefinition,
+          masterData.androidModelRepairSettings,
+        )
+      : undefined;
+  }, [
+    form.repairType,
+    isOtherAndroidManufacturer,
+    masterData.androidModelRepairSettings,
+    masterData.repairItemMaster,
+    selectedAndroidModel,
+  ]);
 
   const draftEstimate = useMemo(
     () =>
@@ -2384,7 +2444,7 @@ function MasterManagementModal({
   const [switchMode, setSwitchMode] =
     useState<SwitchMasterMode>("新規項目追加");
   const [repairItemMode, setRepairItemMode] =
-    useState<RepairItemMode>("修理項目追加");
+    useState<RepairItemMode>("修理メニュー追加");
   const [androidForm, setAndroidForm] = useState(createEmptyAndroidMasterForm);
   const [switchForm, setSwitchForm] = useState(createEmptySwitchMasterForm);
   const [repairItemForm, setRepairItemForm] = useState(createEmptyRepairItemForm);
@@ -2477,6 +2537,17 @@ function MasterManagementModal({
       });
 
       await postMasterAction(action, payload);
+      if (activeTab === "Android" && androidForm.additionalRepairSettings.length > 0) {
+        await postMasterAction(
+          "upsertAndroidModelRepairSettings",
+          createAndroidModelRepairSettingsPayload({
+            androidForm,
+            storeName,
+            loginEmail,
+            role,
+          }),
+        );
+      }
       await onSaved();
       setFeedback({
         tone: "success",
@@ -2489,7 +2560,7 @@ function MasterManagementModal({
       if (activeTab === "Switch" && switchMode === "新規項目追加") {
         setSwitchForm(createEmptySwitchMasterForm());
       }
-      if (activeTab === "修理項目" && repairItemMode === "修理項目追加") {
+      if (activeTab === "修理メニュー" && repairItemMode === "修理メニュー追加") {
         setRepairItemForm(createEmptyRepairItemForm());
       }
     } catch (error) {
@@ -2523,7 +2594,7 @@ function MasterManagementModal({
           <div className="min-w-0">
             <h2 className="text-xl font-bold text-slate-950">マスター管理</h2>
             <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-              Android / Switch / 修理項目のマスターを追加・変更します。
+              Android / Switch / 修理メニューのマスターを追加・変更します。
             </p>
           </div>
           <button
@@ -2565,6 +2636,8 @@ function MasterManagementModal({
               form={androidForm}
               rows={androidRows}
               manufacturers={androidManufacturers}
+              repairItemMaster={data.repairItemMaster}
+              androidModelRepairSettings={data.androidModelRepairSettings}
               search={androidSearch}
               onModeChange={(mode) => {
                 setAndroidMode(mode);
@@ -2573,7 +2646,13 @@ function MasterManagementModal({
               }}
               onSearchChange={setAndroidSearch}
               onSelect={(item) => {
-                setAndroidForm(createAndroidMasterFormFromItem(item));
+                setAndroidForm(
+                  createAndroidMasterFormFromItem(
+                    item,
+                    data.repairItemMaster,
+                    data.androidModelRepairSettings,
+                  ),
+                );
                 setFeedback(null);
               }}
               onFormChange={setAndroidForm}
@@ -2600,7 +2679,7 @@ function MasterManagementModal({
             />
           ) : null}
 
-          {activeTab === "修理項目" ? (
+          {activeTab === "修理メニュー" ? (
             <RepairItemMasterPanel
               mode={repairItemMode}
               form={repairItemForm}
@@ -2663,6 +2742,8 @@ function AndroidMasterPanel({
   form,
   rows,
   manufacturers,
+  repairItemMaster,
+  androidModelRepairSettings,
   search,
   onModeChange,
   onSearchChange,
@@ -2673,6 +2754,8 @@ function AndroidMasterPanel({
   form: AndroidMasterForm;
   rows: AndroidPriceMasterItem[];
   manufacturers: string[];
+  repairItemMaster: RepairItemMasterItem[];
+  androidModelRepairSettings: AndroidModelRepairSettingItem[];
   search: string;
   onModeChange: (mode: AndroidMasterMode) => void;
   onSearchChange: (search: string) => void;
@@ -2696,6 +2779,10 @@ function AndroidMasterPanel({
   );
   const duplicateCandidates = findAndroidDuplicateCandidates(rows, form);
   const showAndroidForm = mode === "新規機種追加" || Boolean(form.rowNumber);
+  const dynamicRepairDefinitions = useMemo(
+    () => createDynamicAndroidRepairDefinitions(repairItemMaster),
+    [repairItemMaster],
+  );
 
   useEffect(() => {
     if (mode !== "既存データ変更") {
@@ -2714,6 +2801,16 @@ function AndroidMasterPanel({
       onSelect(candidateRows[0]);
     }
   }, [candidateRows, form.rowNumber, mode, onSelect]);
+
+  useEffect(() => {
+    onFormChange((current) =>
+      syncAndroidAdditionalRepairSettings(
+        current,
+        repairItemMaster,
+        androidModelRepairSettings,
+      ),
+    );
+  }, [androidModelRepairSettings, onFormChange, repairItemMaster]);
 
   return (
     <div className="grid min-w-0 gap-5">
@@ -2808,6 +2905,16 @@ function AndroidMasterPanel({
             <MasterSelectInput label="受付状態" required value={form.receptionStatus} options={receptionStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, receptionStatus: value }))} />
             <MasterTextArea label="備考" value={form.note} onChange={(value) => onFormChange((current) => ({ ...current, note: value }))} />
           </MasterFormGrid>
+          <AndroidAdditionalRepairSettingsPanel
+            definitions={dynamicRepairDefinitions}
+            settings={form.additionalRepairSettings}
+            onSettingsChange={(settings) =>
+              onFormChange((current) => ({
+                ...current,
+                additionalRepairSettings: settings,
+              }))
+            }
+          />
           {duplicateCandidates.length > 0 ? (
             <section className="grid min-w-0 gap-2 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
               <p className="font-bold">表記が近い既存データがあります。</p>
@@ -3035,14 +3142,10 @@ function RepairItemMasterPanel({
     () => getRepairItemCandidateRows(rows, selectedCategory, selectedRepairItemKey),
     [rows, selectedCategory, selectedRepairItemKey],
   );
-  const addRepairItemOptions = useMemo(
-    () => createRepairItemNameOptions(rows, form.category, ""),
-    [form.category, rows],
-  );
-  const showRepairItemForm = mode === "修理項目追加" || Boolean(form.rowNumber);
+  const showRepairItemForm = mode === "修理メニュー追加" || Boolean(form.rowNumber);
 
   useEffect(() => {
-    if (mode !== "修理項目変更") {
+    if (mode !== "既存メニュー変更") {
       setSelectedCategory("");
       setSelectedRepairItemKey("");
       onSearchChange("");
@@ -3051,7 +3154,7 @@ function RepairItemMasterPanel({
 
   useEffect(() => {
     if (
-      mode === "修理項目変更" &&
+      mode === "既存メニュー変更" &&
       candidateRows.length === 1 &&
       form.rowNumber !== candidateRows[0].rowNumber
     ) {
@@ -3066,7 +3169,7 @@ function RepairItemMasterPanel({
         value={mode}
         onChange={onModeChange}
       />
-      {mode === "修理項目変更" ? (
+      {mode === "既存メニュー変更" ? (
         <RepairItemExistingDataSelector
           categories={categoryOptions}
           selectedCategory={selectedCategory}
@@ -3095,22 +3198,17 @@ function RepairItemMasterPanel({
       ) : null}
       {showRepairItemForm ? (
         <MasterFormGrid>
-          <MasterTextInput label="並び順" value={form.sortOrder} onChange={(value) => onFormChange((current) => ({ ...current, sortOrder: value }))} />
-          <MasterSelectInput label="カテゴリ" required value={form.category} options={categoryOptions} onChange={(value) => onFormChange((current) => ({ ...current, category: value, repairItemName: mode === "修理項目追加" ? "" : current.repairItemName }))} />
-          {mode === "修理項目追加" ? (
-            <RepairItemNameInput
-              value={form.repairItemName}
-              options={addRepairItemOptions}
-              disabled={!form.category}
-              onChange={(value) => onFormChange((current) => ({ ...current, repairItemName: value }))}
-            />
-          ) : (
-            <MasterTextInput label="修理項目名" required value={form.repairItemName} onChange={(value) => onFormChange((current) => ({ ...current, repairItemName: value }))} />
-          )}
-          <MasterTextInput label="表示名" value={form.displayName} onChange={(value) => onFormChange((current) => ({ ...current, displayName: value }))} />
-          <MasterSelectInput label="価格種別" required value={form.priceType} options={repairItemPriceTypes} onChange={(value) => onFormChange((current) => ({ ...current, priceType: value }))} />
-          <MasterTextInput label="標準価格" value={form.standardPrice} onChange={(value) => onFormChange((current) => ({ ...current, standardPrice: value }))} />
-          <MasterSelectInput label="対応区分" required value={form.repairStatus} options={supportStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, repairStatus: value }))} />
+          <MasterSelectInput label="カテゴリ" required value={form.category} options={categoryOptions} onChange={(value) => onFormChange((current) => ({ ...current, category: value, repairItemName: mode === "修理メニュー追加" ? "" : current.repairItemName }))} />
+          <MasterTextInput label="修理メニュー名" required value={form.repairItemName} onChange={(value) => onFormChange((current) => ({ ...current, repairItemName: value }))} />
+          {mode === "既存メニュー変更" ? (
+            <>
+              <MasterTextInput label="並び順" value={form.sortOrder} onChange={(value) => onFormChange((current) => ({ ...current, sortOrder: value }))} />
+              <MasterTextInput label="表示名" value={form.displayName} onChange={(value) => onFormChange((current) => ({ ...current, displayName: value }))} />
+              <MasterSelectInput label="価格種別" required value={form.priceType} options={repairItemPriceTypes} onChange={(value) => onFormChange((current) => ({ ...current, priceType: value }))} />
+              <MasterSelectInput label="対応区分" required value={form.repairStatus} options={supportStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, repairStatus: value }))} />
+            </>
+          ) : null}
+          <MasterTextInput label="基本料金" value={form.standardPrice} onChange={(value) => onFormChange((current) => ({ ...current, standardPrice: value }))} />
           <MasterSelectInput label="対象機種カテゴリ" value={form.targetModelCategory} options={repairItemTargetCategories} onChange={(value) => onFormChange((current) => ({ ...current, targetModelCategory: value }))} />
           <MasterSelectInput label="受付状態" required value={form.receptionStatus} options={receptionStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, receptionStatus: value }))} />
           <MasterTextArea label="備考" value={form.note} onChange={(value) => onFormChange((current) => ({ ...current, note: value }))} />
@@ -3152,7 +3250,7 @@ function RepairItemExistingDataSelector({
   return (
     <section className="grid min-w-0 gap-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
       <p className="text-sm font-semibold leading-6 text-slate-600">
-        カテゴリを選択すると、そのカテゴリに登録されている修理項目だけが表示されます。
+        カテゴリを選択すると、そのカテゴリに登録されている修理メニューだけが表示されます。
       </p>
       <Field label="カテゴリ選択" requirement="必須">
         <select
@@ -3168,20 +3266,20 @@ function RepairItemExistingDataSelector({
           ))}
         </select>
       </Field>
-      <Field label="修理項目検索" requirement="任意">
+      <Field label="修理メニュー検索" requirement="任意">
         <input
           value={search}
           disabled={!selectedCategory}
           placeholder={
             selectedCategory
-              ? "修理項目名・表示名・対象機種カテゴリ・備考で検索"
+              ? "修理メニュー名・表示名・対象機種カテゴリ・備考で検索"
               : "先にカテゴリを選択してください"
           }
           onChange={(event) => onSearchChange(event.target.value)}
           className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
         />
       </Field>
-      <Field label="修理項目選択" requirement="必須">
+      <Field label="修理メニュー選択" requirement="必須">
         <select
           value={selectedRepairItemKey}
           disabled={!selectedCategory || repairItemOptions.length === 0}
@@ -3192,8 +3290,8 @@ function RepairItemExistingDataSelector({
             {!selectedCategory
               ? "先にカテゴリを選択してください"
               : repairItemOptions.length === 0
-                ? "該当する修理項目がありません"
-                : "修理項目を選択してください"}
+                ? "該当する修理メニューがありません"
+                : "修理メニューを選択してください"}
           </option>
           {repairItemOptions.map((option) => (
             <option key={option.key} value={option.key}>
@@ -3204,7 +3302,7 @@ function RepairItemExistingDataSelector({
       </Field>
       {selectedCategory && repairItemOptions.length === 0 ? (
         <p className="rounded-md border border-dashed border-slate-300 bg-white px-4 py-3 text-sm font-semibold leading-6 text-slate-500">
-          修理項目追加から先に登録してください。
+          修理メニュー追加から先に登録してください。
         </p>
       ) : null}
       <Field label="対象データ候補選択" requirement="必須">
@@ -3240,62 +3338,6 @@ function RepairItemExistingDataSelector({
         </p>
       ) : null}
     </section>
-  );
-}
-
-function RepairItemNameInput({
-  value,
-  options,
-  disabled,
-  onChange,
-}: {
-  value: string;
-  options: RepairItemNameOption[];
-  disabled: boolean;
-  onChange: (value: string) => void;
-}) {
-  const optionLabels = options.map((option) => option.label);
-  const isKnownRepairItem = value && optionLabels.includes(value);
-  const selectValue = isKnownRepairItem ? value : value ? "__other__" : "";
-
-  return (
-    <div className="grid min-w-0 gap-3">
-      <Field label="修理項目名" requirement="必須">
-        <select
-          value={selectValue}
-          disabled={disabled}
-          onChange={(event) => {
-            const nextValue = event.target.value;
-            onChange(nextValue === "__other__" ? "" : nextValue);
-          }}
-          className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-        >
-          <option value="">
-            {disabled ? "カテゴリを選択してください" : "既存修理項目から選択"}
-          </option>
-          {options.map((option) => (
-            <option key={option.key} value={option.label}>
-              {option.label}
-            </option>
-          ))}
-          <option value="__other__">その他/新規入力</option>
-        </select>
-      </Field>
-      {selectValue === "__other__" ? (
-        <Field label="新規修理項目名" requirement="必須">
-          <input
-            value={value}
-            onChange={(event) => onChange(event.target.value)}
-            className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-          />
-        </Field>
-      ) : null}
-      {!disabled && options.length === 0 ? (
-        <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm font-semibold leading-6 text-slate-500">
-          既存の修理項目はありません。新規入力してください。
-        </p>
-      ) : null}
-    </div>
   );
 }
 
@@ -3458,6 +3500,123 @@ function AndroidRepairStatusInput({
         </Field>
       ) : null}
     </div>
+  );
+}
+
+function AndroidAdditionalRepairSettingsPanel({
+  definitions,
+  settings,
+  onSettingsChange,
+}: {
+  definitions: DynamicAndroidRepairDefinition[];
+  settings: AndroidModelRepairSettingForm[];
+  onSettingsChange: (settings: AndroidModelRepairSettingForm[]) => void;
+}) {
+  const settingsByName = new Map(
+    settings.map((setting) => [
+      normalizeRepairItemName(setting.repairItemName),
+      setting,
+    ]),
+  );
+
+  if (definitions.length === 0) {
+    return null;
+  }
+
+  function updateSetting(
+    repairItemName: string,
+    patch: Partial<AndroidModelRepairSettingForm>,
+  ) {
+    const key = normalizeRepairItemName(repairItemName);
+    const nextSettings = definitions.map((definition) => {
+      const current =
+        settingsByName.get(normalizeRepairItemName(definition.repairItemName)) ??
+        createDefaultAndroidModelRepairSettingForm(definition.repairItemName);
+
+      return normalizeRepairItemName(definition.repairItemName) === key
+        ? { ...current, ...patch }
+        : current;
+    });
+
+    onSettingsChange(nextSettings);
+  }
+
+  return (
+    <details className="rounded-lg border border-slate-200 bg-slate-50 p-4" open>
+      <summary className="cursor-pointer text-sm font-bold text-slate-800">
+        追加修理メニュー設定
+      </summary>
+      <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">
+        修理メニュー管理で追加したAndroidメニューの、機種別対応可否を設定できます。未設定の場合は見積もり時に要確認として扱われます。
+      </p>
+      <div className="mt-4 grid min-w-0 gap-4">
+        {definitions.map((definition) => {
+          const setting =
+            settingsByName.get(normalizeRepairItemName(definition.repairItemName)) ??
+            createDefaultAndroidModelRepairSettingForm(definition.repairItemName);
+          const requiresPrice = setting.repairStatus === manualPriceStatusOption;
+
+          return (
+            <section
+              key={definition.key}
+              className="grid min-w-0 gap-3 rounded-md border border-slate-200 bg-white p-4"
+            >
+              <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+                <p className="min-w-0 break-words text-sm font-bold text-slate-900">
+                  {definition.label}
+                </p>
+                <p className="text-xs font-semibold text-slate-500">
+                  基本料金：{formatRepairItemStandardPrice(definition.standardPrice)}
+                </p>
+              </div>
+              <div className="grid min-w-0 gap-3 md:grid-cols-2">
+                <MasterSelectInput
+                  label="対応区分"
+                  required
+                  value={setting.repairStatus}
+                  options={androidAdditionalRepairStatusOptions}
+                  onChange={(value) =>
+                    updateSetting(definition.repairItemName, {
+                      repairStatus: value,
+                      customPrice:
+                        value === manualPriceStatusOption
+                          ? setting.customPrice
+                          : setting.customPrice,
+                    })
+                  }
+                />
+                <MasterTextInput
+                  label="個別価格"
+                  required={requiresPrice}
+                  value={setting.customPrice}
+                  onChange={(value) =>
+                    updateSetting(definition.repairItemName, { customPrice: value })
+                  }
+                />
+                <MasterSelectInput
+                  label="受付状態"
+                  required
+                  value={setting.receptionStatus}
+                  options={receptionStatusOptions}
+                  onChange={(value) =>
+                    updateSetting(definition.repairItemName, {
+                      receptionStatus: value,
+                    })
+                  }
+                />
+                <MasterTextInput
+                  label="備考"
+                  value={setting.note}
+                  onChange={(value) =>
+                    updateSetting(definition.repairItemName, { note: value })
+                  }
+                />
+              </div>
+            </section>
+          );
+        })}
+      </div>
+    </details>
   );
 }
 
@@ -4882,6 +5041,7 @@ function createEmptyAndroidMasterForm(): AndroidMasterForm {
     volumeButtonStatus: "",
     note: "",
     receptionStatus: "受付可",
+    additionalRepairSettings: [],
   };
 }
 
@@ -4907,7 +5067,7 @@ function createEmptyRepairItemForm(): RepairItemForm {
     displayName: "",
     priceType: "固定価格",
     standardPrice: "",
-    repairStatus: "店舗対応可",
+    repairStatus: "要確認",
     targetModelCategory: "",
     note: "",
     receptionStatus: "受付可",
@@ -4916,6 +5076,8 @@ function createEmptyRepairItemForm(): RepairItemForm {
 
 function createAndroidMasterFormFromItem(
   item: AndroidPriceMasterItem,
+  repairItemMaster: RepairItemMasterItem[] = [],
+  androidModelRepairSettings: AndroidModelRepairSettingItem[] = [],
 ): AndroidMasterForm {
   const screenStatus = parseManualPriceStatus(item.screenStatus);
   const batteryStatus = parseManualPriceStatus(item.batteryStatus);
@@ -4944,6 +5106,11 @@ function createAndroidMasterFormFromItem(
     volumeButtonStatus: volumeButtonStatus.status,
     note: item.note,
     receptionStatus: item.receptionStatus,
+    additionalRepairSettings: createAndroidModelRepairSettingForms(
+      repairItemMaster,
+      androidModelRepairSettings,
+      item,
+    ),
   };
 }
 
@@ -5155,6 +5322,220 @@ function formatRepairItemStandardPrice(value: number | string) {
   return text ? `${text}円` : "価格なし";
 }
 
+function createDynamicAndroidRepairDefinitions(
+  repairItemMaster: RepairItemMasterItem[],
+): DynamicAndroidRepairDefinition[] {
+  const fixedLabels = new Set(
+    androidRepairDefinitions.map((item) =>
+      normalizeRepairItemName(item.label),
+    ),
+  );
+  const definitions = new Map<string, DynamicAndroidRepairDefinition>();
+
+  repairItemMaster.forEach((item) => {
+    const label = stringValue(item.displayName || item.repairItemName);
+    const key = normalizeRepairItemName(label);
+
+    if (
+      item.category !== "Android" ||
+      !key ||
+      fixedLabels.has(key) ||
+      item.receptionStatus === "受付停止" ||
+      item.repairStatus === "非対応" ||
+      definitions.has(key)
+    ) {
+      return;
+    }
+
+    definitions.set(key, {
+      key,
+      label,
+      repairItemName: item.repairItemName,
+      standardPrice: item.standardPrice,
+      note: item.note,
+      receptionStatus: item.receptionStatus,
+    });
+  });
+
+  return Array.from(definitions.values());
+}
+
+function createAvailableDynamicAndroidRepairDefinitions(
+  repairItemMaster: RepairItemMasterItem[],
+  androidModelRepairSettings: AndroidModelRepairSettingItem[],
+  selectedAndroidModel?: AndroidPriceMasterItem,
+) {
+  const definitions = createDynamicAndroidRepairDefinitions(repairItemMaster);
+
+  if (!selectedAndroidModel) {
+    return definitions;
+  }
+
+  return definitions.filter((definition) => {
+    const setting = findAndroidModelRepairSetting(
+      androidModelRepairSettings,
+      selectedAndroidModel,
+      definition.repairItemName,
+    );
+
+    return !setting || !isInactiveReceptionStatus(setting.receptionStatus);
+  });
+}
+
+function isInactiveReceptionStatus(value: string) {
+  return value === "受付停止" || value === "非対応";
+}
+
+function createAndroidModelRepairSettingForms(
+  repairItemMaster: RepairItemMasterItem[],
+  androidModelRepairSettings: AndroidModelRepairSettingItem[],
+  model: Pick<AndroidMasterForm, "manufacturer" | "modelName" | "modelNumber">,
+  currentSettings: AndroidModelRepairSettingForm[] = [],
+) {
+  const currentByName = new Map(
+    currentSettings.map((setting) => [
+      normalizeRepairItemName(setting.repairItemName),
+      setting,
+    ]),
+  );
+
+  return createDynamicAndroidRepairDefinitions(repairItemMaster).map((definition) => {
+    const key = normalizeRepairItemName(definition.repairItemName);
+    const current = currentByName.get(key);
+
+    if (current) {
+      return current;
+    }
+
+    const savedSetting = findAndroidModelRepairSetting(
+      androidModelRepairSettings,
+      model,
+      definition.repairItemName,
+    );
+
+    return savedSetting
+      ? createAndroidModelRepairSettingFormFromItem(savedSetting)
+      : createDefaultAndroidModelRepairSettingForm(definition.repairItemName);
+  });
+}
+
+function syncAndroidAdditionalRepairSettings(
+  form: AndroidMasterForm,
+  repairItemMaster: RepairItemMasterItem[],
+  androidModelRepairSettings: AndroidModelRepairSettingItem[],
+) {
+  const nextSettings = createAndroidModelRepairSettingForms(
+    repairItemMaster,
+    androidModelRepairSettings,
+    form,
+    form.additionalRepairSettings,
+  );
+
+  return sameAndroidModelRepairSettingForms(
+    form.additionalRepairSettings,
+    nextSettings,
+  )
+    ? form
+    : {
+        ...form,
+        additionalRepairSettings: nextSettings,
+      };
+}
+
+function createDefaultAndroidModelRepairSettingForm(
+  repairItemName: string,
+): AndroidModelRepairSettingForm {
+  return {
+    repairItemName,
+    repairStatus: "要確認",
+    customPrice: "",
+    note: "",
+    receptionStatus: "受付可",
+  };
+}
+
+function createAndroidModelRepairSettingFormFromItem(
+  item: AndroidModelRepairSettingItem,
+): AndroidModelRepairSettingForm {
+  return {
+    repairItemName: item.repairItemName,
+    repairStatus: item.repairStatus || "要確認",
+    customPrice: stringValue(item.customPrice),
+    note: item.note,
+    receptionStatus: item.receptionStatus || "受付可",
+  };
+}
+
+function sameAndroidModelRepairSettingForms(
+  left: AndroidModelRepairSettingForm[],
+  right: AndroidModelRepairSettingForm[],
+) {
+  return (
+    left.length === right.length &&
+    left.every((item, index) => {
+      const other = right[index];
+
+      return (
+        other &&
+        item.repairItemName === other.repairItemName &&
+        item.repairStatus === other.repairStatus &&
+        item.customPrice === other.customPrice &&
+        item.note === other.note &&
+        item.receptionStatus === other.receptionStatus
+      );
+    })
+  );
+}
+
+function findAndroidModelRepairSetting(
+  settings: AndroidModelRepairSettingItem[],
+  model: Pick<AndroidMasterForm, "manufacturer" | "modelName" | "modelNumber">,
+  repairItemName: string,
+) {
+  const modelKey = createAndroidModelRepairSettingLookupKey({
+    manufacturer: model.manufacturer,
+    modelName: model.modelName,
+    modelNumber: model.modelNumber,
+    repairItemName,
+  });
+
+  if (!modelKey) {
+    return undefined;
+  }
+
+  return settings.find(
+    (setting) =>
+      createAndroidModelRepairSettingLookupKey(setting) === modelKey,
+  );
+}
+
+function createAndroidModelRepairSettingLookupKey({
+  manufacturer,
+  modelName,
+  modelNumber,
+  repairItemName,
+}: {
+  manufacturer: string;
+  modelName: string;
+  modelNumber: string;
+  repairItemName: string;
+}) {
+  const normalizedManufacturer = normalizeModelName(manufacturer);
+  const normalizedModelName = normalizeModelName(modelName);
+  const normalizedRepairItemName = normalizeRepairItemName(repairItemName);
+
+  if (!normalizedManufacturer || !normalizedModelName || !normalizedRepairItemName) {
+    return "";
+  }
+
+  return [
+    normalizedManufacturer,
+    normalizedModelName,
+    normalizeModelName(modelNumber),
+    normalizedRepairItemName,
+  ].join("\t");
+}
+
 function formatMasterPriceValue(value: number | string) {
   const text = stringValue(value);
 
@@ -5208,6 +5589,20 @@ function validateAndroidManualPrices(form: AndroidMasterForm) {
 
   return missingLabels.length > 0
     ? `${missingLabels.join("、")}の手動設定金額を半角数字で入力してください。`
+    : "";
+}
+
+function validateAndroidAdditionalRepairSettings(form: AndroidMasterForm) {
+  const missingLabels = form.additionalRepairSettings
+    .filter(
+      (setting) =>
+        setting.repairStatus === manualPriceStatusOption &&
+        !normalizeManualPrice(setting.customPrice),
+    )
+    .map((setting) => setting.repairItemName);
+
+  return missingLabels.length > 0
+    ? `${missingLabels.join("、")}の個別価格を半角数字で入力してください。`
     : "";
 }
 
@@ -5320,7 +5715,13 @@ function validateMasterForm({
       ["receptionStatus", "受付状態"],
     ]);
 
-    return requiredValidation || validateAndroidManualPrices(androidForm);
+    const additionalValidation = validateAndroidAdditionalRepairSettings(androidForm);
+
+    return (
+      requiredValidation ||
+      validateAndroidManualPrices(androidForm) ||
+      additionalValidation
+    );
   }
 
   if (activeTab === "Switch") {
@@ -5338,17 +5739,21 @@ function validateMasterForm({
     ]);
   }
 
-  if (repairItemMode === "修理項目変更" && !repairItemForm.rowNumber) {
+  if (repairItemMode === "既存メニュー変更" && !repairItemForm.rowNumber) {
     return "変更対象を選択してください。";
   }
 
-  return validateRequiredMasterFields(repairItemForm, [
+  const requiredFields: [keyof RepairItemForm, string][] = [
     ["category", "カテゴリ"],
-    ["repairItemName", "修理項目名"],
-    ["priceType", "価格種別"],
-    ["repairStatus", "対応区分"],
+    ["repairItemName", "修理メニュー名"],
     ["receptionStatus", "受付状態"],
-  ]);
+  ];
+
+  if (repairItemMode === "既存メニュー変更") {
+    requiredFields.push(["priceType", "価格種別"], ["repairStatus", "対応区分"]);
+  }
+
+  return validateRequiredMasterFields(repairItemForm, requiredFields);
 }
 
 function validateRequiredMasterFields<T extends Record<string, unknown>>(
@@ -5413,18 +5818,83 @@ function createMasterActionPayload({
     };
   }
 
+  const repairItemPayload =
+    repairItemMode === "修理メニュー追加"
+      ? createAddRepairItemPayloadItem(repairItemForm)
+      : {
+          ...repairItemForm,
+          displayName:
+            repairItemForm.displayName.trim() ||
+            repairItemForm.repairItemName.trim(),
+        };
+
   return {
     action:
-      repairItemMode === "修理項目追加" ? "addRepairItem" : "updateRepairItem",
+      repairItemMode === "修理メニュー追加" ? "addRepairItem" : "updateRepairItem",
     payload: {
       ...authPayload,
-      item: {
-        ...repairItemForm,
-        displayName:
-          repairItemForm.displayName.trim() || repairItemForm.repairItemName.trim(),
-      },
+      item: repairItemPayload,
     },
   };
+}
+
+function createAndroidModelRepairSettingsPayload({
+  androidForm,
+  storeName,
+  loginEmail,
+  role,
+}: {
+  androidForm: AndroidMasterForm;
+  storeName: string;
+  loginEmail: string;
+  role: string;
+}) {
+  return {
+    storeName,
+    loginEmail,
+    role,
+    settings: androidForm.additionalRepairSettings.map((setting) => ({
+      manufacturer: androidForm.manufacturer.trim(),
+      modelName: androidForm.modelName.trim(),
+      modelNumber: androidForm.modelNumber.trim(),
+      repairItemName: setting.repairItemName.trim(),
+      repairStatus: setting.repairStatus,
+      customPrice: setting.customPrice.trim(),
+      note: setting.note.trim(),
+      receptionStatus: setting.receptionStatus,
+    })),
+  };
+}
+
+function createAddRepairItemPayloadItem(form: RepairItemForm): RepairItemForm {
+  const standardPrice = form.standardPrice.trim();
+  const category = form.category.trim();
+
+  return {
+    ...form,
+    sortOrder: "",
+    category,
+    repairItemName: form.repairItemName.trim(),
+    displayName: form.repairItemName.trim(),
+    priceType: standardPrice ? "固定価格" : "要相談",
+    standardPrice,
+    repairStatus: createDefaultRepairItemStatus(category, standardPrice),
+    targetModelCategory: form.targetModelCategory.trim(),
+    note: form.note.trim(),
+    receptionStatus: form.receptionStatus,
+  };
+}
+
+function createDefaultRepairItemStatus(category: string, standardPrice: string) {
+  if (category === "Android") {
+    return "要確認";
+  }
+
+  if (category === "Switch" && standardPrice) {
+    return "店舗対応可";
+  }
+
+  return "要確認";
 }
 
 function estimateInputMatches(current: FormState, confirmed: FormState) {
@@ -6611,7 +7081,48 @@ function getAndroidRepairEstimate(
   };
 }
 
-function getOtherAndroidRepairEstimate(repairType: string) {
+function getDynamicAndroidRepairEstimate(
+  item: AndroidPriceMasterItem,
+  definition: DynamicAndroidRepairDefinition,
+  androidModelRepairSettings: AndroidModelRepairSettingItem[],
+) {
+  const setting = findAndroidModelRepairSetting(
+    androidModelRepairSettings,
+    item,
+    definition.repairItemName,
+  );
+  const status = setting?.repairStatus || "要確認";
+  const customPrice = setting?.customPrice;
+  const price = hasPriceValue(customPrice)
+    ? customPrice
+    : hasPriceValue(definition.standardPrice)
+    ? definition.standardPrice
+    : "要確認";
+
+  if (setting && isInactiveReceptionStatus(setting.receptionStatus)) {
+    return {
+      repairType: definition.label,
+      price: "受付対象外",
+      status: "非対応",
+      note: [setting.note, definition.note, item.note].filter(Boolean).join("\n"),
+      receptionStatus: setting.receptionStatus,
+    };
+  }
+
+  return {
+    repairType: definition.label,
+    price,
+    status: status === manualPriceStatusOption ? "店舗対応可" : status,
+    note: [setting?.note, definition.note, item.note].filter(Boolean).join("\n"),
+    receptionStatus:
+      setting?.receptionStatus || definition.receptionStatus || item.receptionStatus,
+  };
+}
+
+function getOtherAndroidRepairEstimate(
+  repairType: string,
+  repairItemMaster: RepairItemMasterItem[] = [],
+) {
   if (repairType === "画面修理") {
     return {
       repairType,
@@ -6623,6 +7134,21 @@ function getOtherAndroidRepairEstimate(repairType: string) {
   }
 
   const fixedPrice = getAndroidFixedRepairPrice(repairType);
+  const dynamicDefinition = createDynamicAndroidRepairDefinitions(
+    repairItemMaster,
+  ).find((item) => item.label === repairType);
+
+  if (dynamicDefinition) {
+    return {
+      repairType,
+      price: hasPriceValue(dynamicDefinition.standardPrice)
+        ? dynamicDefinition.standardPrice
+        : "要確認",
+      status: "要確認",
+      note: dynamicDefinition.note || OTHER_ANDROID_CONFIRM_NOTE,
+      receptionStatus: dynamicDefinition.receptionStatus,
+    };
+  }
 
   return {
     repairType,
@@ -6678,6 +7204,18 @@ function createAndroidCustomerMessage({
 
   if (status === "非対応" || price === "受付対象外") {
     return `${modelName}の${repairType}は、現在受付対象外です。`;
+  }
+
+  if (status === "要確認") {
+    const priceLine =
+      price !== undefined && isPriceLike(price)
+        ? `${modelName}の${repairType}は、基本料金${formatEstimate(
+            price,
+            optionTotal,
+          )}を目安として、端末状態と部品状況を確認後に正式にご案内いたします。`
+        : `${modelName}の${repairType}は、端末状態と部品状況を確認後、正式にご案内いたします。`;
+
+    return [priceLine, ANDROID_DATA_GUIDE].join("\n");
   }
 
   if (isConsultationPrice(price) || !isPriceLike(price)) {
@@ -7197,6 +7735,7 @@ async function fetchInitialData(): Promise<InitialData> {
     priceMaster: result.data?.priceMaster ?? [],
     switchEstimateMaster: result.data?.switchEstimateMaster ?? [],
     repairItemMaster: result.data?.repairItemMaster ?? [],
+    androidModelRepairSettings: result.data?.androidModelRepairSettings ?? [],
     staffList: result.data?.staffList ?? [],
     optionMaster: result.data?.optionMaster ?? [],
     users: result.data?.users ?? [],

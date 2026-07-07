@@ -1,159 +1,12 @@
-/**
- * Existing doPost must route this action before returning Invalid action.
- *
- * Add this branch to the current action dispatch:
- *
- * if (action === "sendAdminReport") {
- *   return createJsonResponse(sendAdminReport(payload));
- * }
- *
- * if (action === "getUserMaster") {
- *   return createJsonResponse(getUserMaster());
- * }
- *
- * if (action === "addAndroidMasterItem") {
- *   return createJsonResponse(addAndroidMasterItem(payload));
- * }
- *
- * if (action === "updateAndroidMasterItem") {
- *   return createJsonResponse(updateAndroidMasterItem(payload));
- * }
- *
- * if (action === "addSwitchMasterItem") {
- *   return createJsonResponse(addSwitchMasterItem(payload));
- * }
- *
- * if (action === "updateSwitchMasterItem") {
- *   return createJsonResponse(updateSwitchMasterItem(payload));
- * }
- *
- * if (action === "addRepairItem") {
- *   return createJsonResponse(addRepairItem(payload));
- * }
- *
- * if (action === "updateRepairItem") {
- *   return createJsonResponse(updateRepairItem(payload));
- * }
- *
- * Add this branch to doGet:
- *
- * if (action === "getRepairItemMaster") {
- *   return createJsonResponse(getRepairItemMaster());
- * }
- *
- * Add repairItemMaster to the existing getInitialData response data:
- *
- * repairItemMaster: getRepairItemMaster().repairItemMaster
- */
-
-function sendAdminReport(payload) {
-  const sheet = getOrCreateAdminReportSheet();
-
-  sheet.appendRow([
-    new Date(),
-    payload.storeName || "",
-    payload.loginEmail || "",
-    payload.role || "",
-    payload.reportType || "",
-    payload.category || "",
-    payload.targetModel || "",
-    payload.targetRepairOrSymptom || "",
-    payload.message || "",
-    payload.currentEstimateSummary || "",
-    "未対応",
-  ]);
-
-  return {
-    success: true,
-    ok: true,
-    message: "管理者へ報告しました。",
-  };
-}
-
-function getUserMaster() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName("ユーザーマスター");
-
-  if (!sheet) {
-    return {
-      ok: false,
-      error: "ユーザーマスターシートが見つかりません。",
-    };
-  }
-
-  const lastRow = sheet.getLastRow();
-
-  if (lastRow < 2) {
-    return {
-      ok: true,
-      users: [],
-    };
-  }
-
-  const rows = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
-  const users = rows
-    .map(function(row) {
-      return {
-        email: String(row[0] || "").trim(),
-        storeName: String(row[1] || "").trim(),
-        role: String(row[2] || "").trim(),
-      };
-    })
-    .filter(function(user) {
-      return user.email;
-    });
-
-  return {
-    ok: true,
-    users: users,
-  };
-}
-
-function getOrCreateAdminReportSheet() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheetName = "管理者報告";
-
-  let sheet = ss.getSheetByName(sheetName);
-
-  if (!sheet) {
-    sheet = ss.insertSheet(sheetName);
-    sheet.appendRow([
-      "報告日時",
-      "店舗名",
-      "ログインメール",
-      "権限",
-      "報告種別",
-      "カテゴリ",
-      "対象機種",
-      "対象修理内容・症状",
-      "報告内容",
-      "見積もり要約",
-      "ステータス",
-    ]);
-  } else {
-    ensureAdminReportRoleHeader(sheet);
-  }
-
-  return sheet;
-}
-
-function ensureAdminReportRoleHeader(sheet) {
-  const header = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0];
-  const hasRoleHeader = header.some(function(value) {
-    return String(value || "").trim() === "権限";
-  });
-
-  if (hasRoleHeader) {
-    return;
-  }
-
-  sheet.insertColumnAfter(3);
-  sheet.getRange(1, 4).setValue("権限");
-}
-
 const ANDROID_MASTER_SHEET_NAME = "RepairQuote価格マスター";
 const SWITCH_MASTER_SHEET_NAME = "Switch症状見積もりマスター";
+const OPTION_MASTER_SHEET_NAME = "オプションマスター";
+const USER_MASTER_SHEET_NAME = "ユーザーマスター";
+const STAFF_MASTER_SHEET_NAME = "スタッフマスター";
+const INQUIRY_HISTORY_SHEET_NAME = "見積履歴";
+const ADMIN_REPORT_SHEET_NAME = "管理者報告";
 const REPAIR_ITEM_MASTER_SHEET_NAME = "修理項目マスター";
+const ANDROID_MODEL_REPAIR_SETTINGS_SHEET_NAME = "Android機種別修理メニュー設定";
 const MASTER_CHANGE_HISTORY_SHEET_NAME = "マスター変更履歴";
 
 const ANDROID_MASTER_HEADERS = [
@@ -184,6 +37,48 @@ const SWITCH_MASTER_HEADERS = [
   "受付状態",
 ];
 
+const OPTION_MASTER_HEADERS = [
+  "オプション名",
+  "価格",
+  "ステータス",
+];
+
+const USER_MASTER_HEADERS = [
+  "メールアドレス",
+  "店舗名",
+  "権限",
+];
+
+const STAFF_MASTER_HEADERS = [
+  "スタッフ名",
+  "店舗名",
+  "メールアドレス",
+];
+
+const INQUIRY_HISTORY_HEADERS = [
+  "保存日時",
+  "店舗名",
+  "ログインメール",
+  "権限",
+  "機種名",
+  "修理内容",
+  "対応結果",
+];
+
+const ADMIN_REPORT_HEADERS = [
+  "報告日時",
+  "店舗名",
+  "ログインメール",
+  "権限",
+  "報告種別",
+  "カテゴリ",
+  "対象機種",
+  "対象修理内容・症状",
+  "報告内容",
+  "見積もり要約",
+  "ステータス",
+];
+
 const REPAIR_ITEM_MASTER_HEADERS = [
   "並び順",
   "カテゴリ",
@@ -193,6 +88,19 @@ const REPAIR_ITEM_MASTER_HEADERS = [
   "標準価格",
   "対応区分",
   "対象機種カテゴリ",
+  "備考",
+  "受付状態",
+];
+
+const ANDROID_MODEL_REPAIR_SETTINGS_HEADERS = [
+  "作成日時",
+  "更新日時",
+  "メーカー",
+  "機種名",
+  "型番",
+  "修理メニュー名",
+  "対応区分",
+  "個別価格",
   "備考",
   "受付状態",
 ];
@@ -210,6 +118,380 @@ const MASTER_CHANGE_HISTORY_HEADERS = [
   "変更後",
   "結果",
 ];
+
+function doGet(e) {
+  try {
+    const action = getAction_(e);
+
+    if (!action || action === "getInitialData") {
+      return createJsonResponse(getInitialData());
+    }
+
+    if (action === "getPriceMaster") {
+      return createJsonResponse(getPriceMaster());
+    }
+
+    if (action === "getSwitchEstimateMaster") {
+      return createJsonResponse(getSwitchEstimateMaster());
+    }
+
+    if (action === "getOptionMaster") {
+      return createJsonResponse(getOptionMaster());
+    }
+
+    if (action === "getUserMaster") {
+      return createJsonResponse(getUserMaster());
+    }
+
+    if (action === "getRepairItemMaster") {
+      return createJsonResponse(getRepairItemMaster());
+    }
+
+    if (action === "getAndroidModelRepairSettings") {
+      return createJsonResponse(getAndroidModelRepairSettings());
+    }
+
+    return createJsonResponse({
+      success: false,
+      ok: false,
+      message: "Invalid action: " + action,
+    });
+  } catch (error) {
+    return createJsonResponse(createErrorResponse_(error));
+  }
+}
+
+function doPost(e) {
+  try {
+    const body = parsePostBody_(e);
+    const action = body.action || getAction_(e);
+    const payload = body.payload || {};
+
+    if (action === "saveInquiry") {
+      return createJsonResponse(saveInquiry(payload));
+    }
+
+    if (action === "sendAdminReport") {
+      return createJsonResponse(sendAdminReport(payload));
+    }
+
+    if (action === "getInitialData") {
+      return createJsonResponse(getInitialData());
+    }
+
+    if (action === "getPriceMaster") {
+      return createJsonResponse(getPriceMaster());
+    }
+
+    if (action === "getSwitchEstimateMaster") {
+      return createJsonResponse(getSwitchEstimateMaster());
+    }
+
+    if (action === "getOptionMaster") {
+      return createJsonResponse(getOptionMaster());
+    }
+
+    if (action === "getUserMaster") {
+      return createJsonResponse(getUserMaster());
+    }
+
+    if (action === "getRepairItemMaster") {
+      return createJsonResponse(getRepairItemMaster());
+    }
+
+    if (action === "getAndroidModelRepairSettings") {
+      return createJsonResponse(getAndroidModelRepairSettings());
+    }
+
+    if (action === "addAndroidMasterItem") {
+      return createJsonResponse(addAndroidMasterItem(payload));
+    }
+
+    if (action === "updateAndroidMasterItem") {
+      return createJsonResponse(updateAndroidMasterItem(payload));
+    }
+
+    if (action === "addSwitchMasterItem") {
+      return createJsonResponse(addSwitchMasterItem(payload));
+    }
+
+    if (action === "updateSwitchMasterItem") {
+      return createJsonResponse(updateSwitchMasterItem(payload));
+    }
+
+    if (action === "addRepairItem") {
+      return createJsonResponse(addRepairItem(payload));
+    }
+
+    if (action === "updateRepairItem") {
+      return createJsonResponse(updateRepairItem(payload));
+    }
+
+    if (action === "upsertAndroidModelRepairSettings") {
+      return createJsonResponse(upsertAndroidModelRepairSettings(payload));
+    }
+
+    return createJsonResponse({
+      success: false,
+      ok: false,
+      message: "Invalid action: " + action,
+    });
+  } catch (error) {
+    return createJsonResponse(createErrorResponse_(error));
+  }
+}
+
+function getInitialData() {
+  const priceMasterResult = getPriceMaster();
+  const switchEstimateMasterResult = getSwitchEstimateMaster();
+  const optionMasterResult = getOptionMaster();
+  const userMasterResult = getUserMaster();
+  const repairItemMasterResult = getRepairItemMaster();
+  const androidModelRepairSettingsResult = getAndroidModelRepairSettings();
+
+  return {
+    success: true,
+    ok: true,
+    data: {
+      priceMaster: priceMasterResult.priceMaster || [],
+      switchEstimateMaster: switchEstimateMasterResult.switchEstimateMaster || [],
+      repairItemMaster: repairItemMasterResult.repairItemMaster || [],
+      androidModelRepairSettings:
+        androidModelRepairSettingsResult.androidModelRepairSettings || [],
+      staffList: getStaffList_().staffList || [],
+      optionMaster: optionMasterResult.optionMaster || [],
+      users: userMasterResult.users || [],
+    },
+  };
+}
+
+function getPriceMaster() {
+  const sheet = getRequiredSheet_(ANDROID_MASTER_SHEET_NAME);
+  const rows = getDataRows_(sheet);
+  const priceMaster = rows.map(function(row) {
+    return {
+      rowNumber: row.rowNumber,
+      sortOrder: row.value("並び順", 0),
+      manufacturer: row.text("メーカー", 1),
+      modelName: row.text("機種名", 2),
+      modelNumber: row.text("型番", 3),
+      screenPrice: row.value("画面修理価格", 4),
+      screenStatus: row.text("画面修理対応区分", 5),
+      batteryStatus: row.text("バッテリー対応区分", 6),
+      chargePortStatus: row.text("充電口対応区分", 7),
+      cameraLensStatus: row.text("カメラレンズ対応区分", 8),
+      sleepButtonStatus: row.text("スリープボタン対応区分", 9),
+      volumeButtonStatus: row.text("音量ボタン対応区分", 10),
+      note: row.text("備考", 11),
+      receptionStatus: row.text("受付状態", 12),
+    };
+  }).filter(function(item) {
+    return item.manufacturer || item.modelName;
+  });
+
+  return {
+    success: true,
+    ok: true,
+    priceMaster: priceMaster,
+    items: priceMaster,
+  };
+}
+
+function getSwitchEstimateMaster() {
+  const sheet = getRequiredSheet_(SWITCH_MASTER_SHEET_NAME);
+  const rows = getDataRows_(sheet);
+  const switchEstimateMaster = rows.map(function(row) {
+    return {
+      rowNumber: row.rowNumber,
+      sortOrder: row.value("並び順", 0),
+      modelName: row.text("機種名", 1),
+      modelNumber: row.text("型番", 2),
+      symptom: row.text("症状", 3),
+      estimatedRepairType: row.text("想定修理内容", 4),
+      repairPrice: row.value("修理費用", 5),
+      repairStatus: row.text("対応区分", 6),
+      note: row.text("案内文補足", 7),
+      receptionStatus: row.text("受付状態", 8),
+    };
+  }).filter(function(item) {
+    return item.modelName || item.symptom || item.estimatedRepairType;
+  });
+
+  return {
+    success: true,
+    ok: true,
+    switchEstimateMaster: switchEstimateMaster,
+    items: switchEstimateMaster,
+  };
+}
+
+function getOptionMaster() {
+  const sheet = getOptionalSheet_(OPTION_MASTER_SHEET_NAME);
+
+  if (!sheet) {
+    return {
+      success: true,
+      ok: true,
+      optionMaster: [],
+      options: [],
+    };
+  }
+
+  const rows = getDataRows_(sheet);
+  const optionMaster = rows.map(function(row) {
+    const rowObject = rowToObject_(row.headers, row.values);
+    const optionName =
+      row.text("オプション名", 0) ||
+      row.text("optionName", 0) ||
+      row.text("name", 0) ||
+      row.text("label", 0);
+    const optionPrice =
+      row.value("価格", 1) ||
+      row.value("オプション価格", 1) ||
+      row.value("optionPrice", 1) ||
+      row.value("price", 1);
+    const status =
+      row.text("ステータス", 2) ||
+      row.text("受付状態", 2) ||
+      row.text("status", 2);
+
+    rowObject.optionName = rowObject.optionName || optionName;
+    rowObject.name = rowObject.name || optionName;
+    rowObject.label = rowObject.label || optionName;
+    rowObject.optionPrice = rowObject.optionPrice || optionPrice;
+    rowObject.price = rowObject.price || optionPrice;
+    rowObject.status = rowObject.status || status;
+
+    return rowObject;
+  }).filter(function(item) {
+    return item.optionName || item.name || item.label;
+  });
+
+  return {
+    success: true,
+    ok: true,
+    optionMaster: optionMaster,
+    options: optionMaster,
+  };
+}
+
+function getUserMaster() {
+  const sheet = getOptionalSheet_(USER_MASTER_SHEET_NAME);
+
+  if (!sheet) {
+    return {
+      success: false,
+      ok: false,
+      message: USER_MASTER_SHEET_NAME + "シートが見つかりません。",
+      error: USER_MASTER_SHEET_NAME + "シートが見つかりません。",
+      users: [],
+    };
+  }
+
+  const rows = getDataRows_(sheet);
+  const users = rows.map(function(row) {
+    return {
+      email:
+        row.text("メールアドレス", 0) ||
+        row.text("メール", 0) ||
+        row.text("email", 0),
+      storeName:
+        row.text("店舗名", 1) ||
+        row.text("storeName", 1),
+      role:
+        row.text("権限", 2) ||
+        row.text("role", 2) ||
+        "staff",
+    };
+  }).filter(function(user) {
+    return user.email;
+  });
+
+  return {
+    success: true,
+    ok: true,
+    users: users,
+    data: {
+      users: users,
+    },
+  };
+}
+
+function saveInquiry(payload) {
+  const sheet = getOrCreateSheetWithHeaders_(
+    INQUIRY_HISTORY_SHEET_NAME,
+    INQUIRY_HISTORY_HEADERS,
+  );
+
+  sheet.appendRow([
+    new Date(),
+    payload.storeName || "",
+    payload.loginEmail || "",
+    payload.role || "",
+    payload.modelName || "",
+    payload.repairType || "",
+    payload.status || "",
+  ]);
+
+  return {
+    success: true,
+    ok: true,
+    message: "見積履歴を保存しました。",
+  };
+}
+
+function sendAdminReport(payload) {
+  const sheet = getOrCreateAdminReportSheet_();
+
+  sheet.appendRow([
+    payload.createdAt ? new Date(payload.createdAt) : new Date(),
+    payload.storeName || "",
+    payload.loginEmail || "",
+    payload.role || "",
+    payload.reportType || "",
+    payload.category || "",
+    payload.targetModel || "",
+    payload.targetRepairOrSymptom || "",
+    payload.message || "",
+    payload.currentEstimateSummary || "",
+    "未対応",
+  ]);
+
+  return {
+    success: true,
+    ok: true,
+    message: "管理者へ報告しました。",
+  };
+}
+
+function getRepairItemMaster() {
+  const sheet = getOrCreateRepairItemMasterSheet_();
+  const rows = getDataRows_(sheet);
+  const repairItemMaster = rows.map(function(row) {
+    return {
+      rowNumber: row.rowNumber,
+      sortOrder: row.value("並び順", 0),
+      category: row.text("カテゴリ", 1),
+      repairItemName: row.text("修理項目名", 2),
+      displayName: row.text("表示名", 3),
+      priceType: row.text("価格種別", 4),
+      standardPrice: row.value("標準価格", 5),
+      repairStatus: row.text("対応区分", 6),
+      targetModelCategory: row.text("対象機種カテゴリ", 7),
+      note: row.text("備考", 8),
+      receptionStatus: row.text("受付状態", 9),
+    };
+  }).filter(function(item) {
+    return item.repairItemName;
+  });
+
+  return {
+    success: true,
+    ok: true,
+    repairItemMaster: repairItemMaster,
+    items: repairItemMaster,
+  };
+}
 
 function addAndroidMasterItem(payload) {
   const adminError = getAdminRoleError_(payload);
@@ -244,7 +526,9 @@ function updateAndroidMasterItem(payload) {
 
   const sheet = getRequiredSheet_(ANDROID_MASTER_SHEET_NAME);
   const rowNumber = normalizeRowNumber_(payload.item && payload.item.rowNumber);
-  const beforeValues = sheet.getRange(rowNumber, 1, 1, ANDROID_MASTER_HEADERS.length).getValues()[0];
+  const beforeValues = sheet
+    .getRange(rowNumber, 1, 1, ANDROID_MASTER_HEADERS.length)
+    .getValues()[0];
   const values = androidMasterItemToRow_(payload.item || {});
 
   sheet.getRange(rowNumber, 1, 1, values.length).setValues([values]);
@@ -300,7 +584,9 @@ function updateSwitchMasterItem(payload) {
 
   const sheet = getRequiredSheet_(SWITCH_MASTER_SHEET_NAME);
   const rowNumber = normalizeRowNumber_(payload.item && payload.item.rowNumber);
-  const beforeValues = sheet.getRange(rowNumber, 1, 1, SWITCH_MASTER_HEADERS.length).getValues()[0];
+  const beforeValues = sheet
+    .getRange(rowNumber, 1, 1, SWITCH_MASTER_HEADERS.length)
+    .getValues()[0];
   const values = switchMasterItemToRow_(payload.item || {});
 
   sheet.getRange(rowNumber, 1, 1, values.length).setValues([values]);
@@ -320,48 +606,6 @@ function updateSwitchMasterItem(payload) {
     ok: true,
     rowNumber: rowNumber,
     message: "Switchマスターを更新しました。",
-  };
-}
-
-function getRepairItemMaster() {
-  const sheet = getOrCreateRepairItemMasterSheet_();
-  const lastRow = sheet.getLastRow();
-
-  if (lastRow < 2) {
-    return {
-      success: true,
-      ok: true,
-      repairItemMaster: [],
-      items: [],
-    };
-  }
-
-  const rows = sheet.getRange(2, 1, lastRow - 1, REPAIR_ITEM_MASTER_HEADERS.length).getValues();
-  const repairItemMaster = rows
-    .map(function(row, index) {
-      return {
-        rowNumber: index + 2,
-        sortOrder: row[0],
-        category: String(row[1] || "").trim(),
-        repairItemName: String(row[2] || "").trim(),
-        displayName: String(row[3] || "").trim(),
-        priceType: String(row[4] || "").trim(),
-        standardPrice: row[5],
-        repairStatus: String(row[6] || "").trim(),
-        targetModelCategory: String(row[7] || "").trim(),
-        note: String(row[8] || "").trim(),
-        receptionStatus: String(row[9] || "").trim(),
-      };
-    })
-    .filter(function(item) {
-      return item.repairItemName;
-    });
-
-  return {
-    success: true,
-    ok: true,
-    repairItemMaster: repairItemMaster,
-    items: repairItemMaster,
   };
 }
 
@@ -398,7 +642,9 @@ function updateRepairItem(payload) {
 
   const sheet = getOrCreateRepairItemMasterSheet_();
   const rowNumber = normalizeRowNumber_(payload.item && payload.item.rowNumber);
-  const beforeValues = sheet.getRange(rowNumber, 1, 1, REPAIR_ITEM_MASTER_HEADERS.length).getValues()[0];
+  const beforeValues = sheet
+    .getRange(rowNumber, 1, 1, REPAIR_ITEM_MASTER_HEADERS.length)
+    .getValues()[0];
   const values = repairItemToRow_(payload.item || {});
 
   sheet.getRange(rowNumber, 1, 1, values.length).setValues([values]);
@@ -418,6 +664,163 @@ function updateRepairItem(payload) {
     ok: true,
     rowNumber: rowNumber,
     message: "修理項目を更新しました。",
+  };
+}
+
+function getAndroidModelRepairSettings() {
+  const sheet = getOrCreateAndroidModelRepairSettingsSheet_();
+  const rows = getDataRows_(sheet);
+  const androidModelRepairSettings = rows.map(function(row) {
+    return {
+      rowNumber: row.rowNumber,
+      createdAt: row.value("作成日時", 0),
+      updatedAt: row.value("更新日時", 1),
+      manufacturer: row.text("メーカー", 2),
+      modelName: row.text("機種名", 3),
+      modelNumber: row.text("型番", 4),
+      repairItemName: row.text("修理メニュー名", 5),
+      repairStatus: row.text("対応区分", 6),
+      customPrice: row.value("個別価格", 7),
+      note: row.text("備考", 8),
+      receptionStatus: row.text("受付状態", 9),
+    };
+  }).filter(function(item) {
+    return item.manufacturer && item.modelName && item.repairItemName;
+  });
+
+  return {
+    success: true,
+    ok: true,
+    androidModelRepairSettings: androidModelRepairSettings,
+    settings: androidModelRepairSettings,
+  };
+}
+
+function upsertAndroidModelRepairSettings(payload) {
+  const adminError = getAdminRoleError_(payload);
+  if (adminError) return adminError;
+
+  const sheet = getOrCreateAndroidModelRepairSettingsSheet_();
+  const settings = Array.isArray(payload && payload.settings) ? payload.settings : [];
+  const now = new Date();
+  const rows = getDataRows_(sheet);
+  const rowByKey = {};
+
+  rows.forEach(function(row) {
+    const key = createAndroidModelRepairSettingKey_({
+      manufacturer: row.value("メーカー", 2),
+      modelName: row.value("機種名", 3),
+      modelNumber: row.value("型番", 4),
+      repairItemName: row.value("修理メニュー名", 5),
+    });
+
+    if (key) {
+      rowByKey[key] = {
+        rowNumber: row.rowNumber,
+        values: row.values,
+      };
+    }
+  });
+
+  let savedCount = 0;
+
+  settings.forEach(function(setting) {
+    const normalizedSetting = normalizeAndroidModelRepairSetting_(setting);
+    const key = createAndroidModelRepairSettingKey_(normalizedSetting);
+
+    if (!key) {
+      return;
+    }
+
+    const existing = rowByKey[key];
+
+    if (existing) {
+      const beforeValues = existing.values;
+      const values = androidModelRepairSettingToRow_(
+        normalizedSetting,
+        beforeValues[0] || now,
+        now,
+      );
+
+      sheet.getRange(existing.rowNumber, 1, 1, values.length).setValues([values]);
+      existing.values = values;
+
+      appendMasterChangeHistory_(payload, {
+        operationType: "Android機種別修理メニュー設定変更",
+        category: "Android",
+        targetSheet: ANDROID_MODEL_REPAIR_SETTINGS_SHEET_NAME,
+        rowNumber: existing.rowNumber,
+        beforeValue: rowToObject_(ANDROID_MODEL_REPAIR_SETTINGS_HEADERS, beforeValues),
+        afterValue: rowToObject_(ANDROID_MODEL_REPAIR_SETTINGS_HEADERS, values),
+        result: "成功",
+      });
+    } else {
+      const values = androidModelRepairSettingToRow_(normalizedSetting, now, now);
+      sheet.appendRow(values);
+      const rowNumber = sheet.getLastRow();
+
+      rowByKey[key] = {
+        rowNumber: rowNumber,
+        values: values,
+      };
+
+      appendMasterChangeHistory_(payload, {
+        operationType: "Android機種別修理メニュー設定追加",
+        category: "Android",
+        targetSheet: ANDROID_MODEL_REPAIR_SETTINGS_SHEET_NAME,
+        rowNumber: rowNumber,
+        beforeValue: "",
+        afterValue: rowToObject_(ANDROID_MODEL_REPAIR_SETTINGS_HEADERS, values),
+        result: "成功",
+      });
+    }
+
+    savedCount += 1;
+  });
+
+  return {
+    success: true,
+    ok: true,
+    savedCount: savedCount,
+    message: "Android機種別修理メニュー設定を保存しました。",
+  };
+}
+
+function getStaffList_() {
+  const sheet = getOptionalSheet_(STAFF_MASTER_SHEET_NAME);
+
+  if (!sheet) {
+    return {
+      success: true,
+      ok: true,
+      staffList: [],
+    };
+  }
+
+  const rows = getDataRows_(sheet);
+  const staffList = rows.map(function(row) {
+    const rowObject = rowToObject_(row.headers, row.values);
+
+    rowObject.name =
+      rowObject.name ||
+      rowObject.staffName ||
+      row.text("スタッフ名", 0) ||
+      row.text("氏名", 0);
+    rowObject.storeName = rowObject.storeName || row.text("店舗名", 1);
+    rowObject.email =
+      rowObject.email ||
+      row.text("メールアドレス", 2) ||
+      row.text("メール", 2);
+
+    return rowObject;
+  }).filter(function(item) {
+    return item.name || item.storeName || item.email;
+  });
+
+  return {
+    success: true,
+    ok: true,
+    staffList: staffList,
   };
 }
 
@@ -470,6 +873,57 @@ function repairItemToRow_(item) {
   ];
 }
 
+function androidModelRepairSettingToRow_(setting, createdAt, updatedAt) {
+  return [
+    createdAt || "",
+    updatedAt || "",
+    setting.manufacturer || "",
+    setting.modelName || "",
+    setting.modelNumber || "",
+    setting.repairItemName || "",
+    setting.repairStatus || "",
+    setting.customPrice || "",
+    setting.note || "",
+    setting.receptionStatus || "",
+  ];
+}
+
+function normalizeAndroidModelRepairSetting_(setting) {
+  return {
+    manufacturer: String((setting && setting.manufacturer) || "").trim(),
+    modelName: String((setting && setting.modelName) || "").trim(),
+    modelNumber: String((setting && setting.modelNumber) || "").trim(),
+    repairItemName: String((setting && setting.repairItemName) || "").trim(),
+    repairStatus: String((setting && setting.repairStatus) || "").trim() || "要確認",
+    customPrice:
+      setting && setting.customPrice !== undefined ? setting.customPrice : "",
+    note: String((setting && setting.note) || "").trim(),
+    receptionStatus:
+      String((setting && setting.receptionStatus) || "").trim() || "受付可",
+  };
+}
+
+function createAndroidModelRepairSettingKey_(setting) {
+  const manufacturer = normalizeAndroidModelRepairSettingText_(
+    setting && setting.manufacturer,
+  );
+  const modelName = normalizeAndroidModelRepairSettingText_(
+    setting && setting.modelName,
+  );
+  const modelNumber = normalizeAndroidModelRepairSettingText_(
+    setting && setting.modelNumber,
+  );
+  const repairItemName = normalizeAndroidRepairItemSettingText_(
+    setting && setting.repairItemName,
+  );
+
+  if (!manufacturer || !modelName || !repairItemName) {
+    return "";
+  }
+
+  return [manufacturer, modelName, modelNumber, repairItemName].join("\t");
+}
+
 function getAdminRoleError_(payload) {
   if (!payload || payload.role !== "admin") {
     return {
@@ -480,6 +934,32 @@ function getAdminRoleError_(payload) {
   }
 
   return null;
+}
+
+function getAction_(e) {
+  return String((e && e.parameter && e.parameter.action) || "").trim();
+}
+
+function parsePostBody_(e) {
+  const contents = e && e.postData && e.postData.contents;
+
+  if (!contents) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(contents);
+  } catch (error) {
+    throw new Error("POST body JSONの解析に失敗しました。");
+  }
+}
+
+function createErrorResponse_(error) {
+  return {
+    success: false,
+    ok: false,
+    message: error && error.message ? error.message : String(error),
+  };
 }
 
 function normalizeRowNumber_(rowNumber) {
@@ -493,8 +973,7 @@ function normalizeRowNumber_(rowNumber) {
 }
 
 function getRequiredSheet_(sheetName) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(sheetName);
+  const sheet = getOptionalSheet_(sheetName);
 
   if (!sheet) {
     throw new Error(sheetName + "シートが見つかりません。");
@@ -503,12 +982,39 @@ function getRequiredSheet_(sheetName) {
   return sheet;
 }
 
+function getOptionalSheet_(sheetName) {
+  return SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
+}
+
+function getOrCreateAdminReportSheet_() {
+  const sheet = getOrCreateSheetWithHeaders_(
+    ADMIN_REPORT_SHEET_NAME,
+    ADMIN_REPORT_HEADERS,
+  );
+  ensureHeaders_(sheet, ADMIN_REPORT_HEADERS);
+
+  return sheet;
+}
+
 function getOrCreateRepairItemMasterSheet_() {
-  return getOrCreateSheetWithHeaders_(REPAIR_ITEM_MASTER_SHEET_NAME, REPAIR_ITEM_MASTER_HEADERS);
+  return getOrCreateSheetWithHeaders_(
+    REPAIR_ITEM_MASTER_SHEET_NAME,
+    REPAIR_ITEM_MASTER_HEADERS,
+  );
+}
+
+function getOrCreateAndroidModelRepairSettingsSheet_() {
+  return getOrCreateSheetWithHeaders_(
+    ANDROID_MODEL_REPAIR_SETTINGS_SHEET_NAME,
+    ANDROID_MODEL_REPAIR_SETTINGS_HEADERS,
+  );
 }
 
 function getOrCreateMasterChangeHistorySheet_() {
-  return getOrCreateSheetWithHeaders_(MASTER_CHANGE_HISTORY_SHEET_NAME, MASTER_CHANGE_HISTORY_HEADERS);
+  return getOrCreateSheetWithHeaders_(
+    MASTER_CHANGE_HISTORY_SHEET_NAME,
+    MASTER_CHANGE_HISTORY_HEADERS,
+  );
 }
 
 function getOrCreateSheetWithHeaders_(sheetName, headers) {
@@ -523,9 +1029,77 @@ function getOrCreateSheetWithHeaders_(sheetName, headers) {
 
   if (sheet.getLastRow() === 0) {
     sheet.appendRow(headers);
+    return sheet;
   }
 
+  ensureHeaders_(sheet, headers);
+
   return sheet;
+}
+
+function ensureHeaders_(sheet, headers) {
+  const width = Math.max(sheet.getLastColumn(), headers.length, 1);
+  const currentHeaders = sheet.getRange(1, 1, 1, width).getValues()[0];
+  const currentHeaderMap = {};
+
+  currentHeaders.forEach(function(header) {
+    const text = String(header || "").trim();
+
+    if (text) {
+      currentHeaderMap[text] = true;
+    }
+  });
+
+  headers.forEach(function(header, index) {
+    if (!currentHeaders[index]) {
+      sheet.getRange(1, index + 1).setValue(header);
+      currentHeaderMap[header] = true;
+    }
+  });
+}
+
+function getDataRows_(sheet) {
+  const lastRow = sheet.getLastRow();
+  const lastColumn = Math.max(sheet.getLastColumn(), 1);
+
+  if (lastRow < 2) {
+    return [];
+  }
+
+  const headers = sheet
+    .getRange(1, 1, 1, lastColumn)
+    .getValues()[0]
+    .map(function(header) {
+      return String(header || "").trim();
+    });
+  const values = sheet.getRange(2, 1, lastRow - 1, lastColumn).getValues();
+  const headerIndex = {};
+
+  headers.forEach(function(header, index) {
+    if (header && headerIndex[header] === undefined) {
+      headerIndex[header] = index;
+    }
+  });
+
+  return values.map(function(rowValues, index) {
+    return {
+      rowNumber: index + 2,
+      headers: headers,
+      values: rowValues,
+      value: function(header, fallbackIndex) {
+        const indexFromHeader = headerIndex[header];
+        const indexToUse =
+          indexFromHeader === undefined ? fallbackIndex : indexFromHeader;
+
+        return rowValues[indexToUse] === undefined ? "" : rowValues[indexToUse];
+      },
+      text: function(header, fallbackIndex) {
+        const value = this.value(header, fallbackIndex);
+
+        return String(value || "").trim();
+      },
+    };
+  });
 }
 
 function appendMasterChangeHistory_(payload, detail) {
@@ -554,6 +1128,65 @@ function rowToObject_(headers, values) {
   });
 
   return result;
+}
+
+function normalizeAndroidModelRepairSettingText_(value) {
+  return normalizeRomanNumeralsForGas_(
+    String(value || "")
+      .normalize("NFKC")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " "),
+  ).replace(/[\s_\-‐‑‒–—ー]/g, "");
+}
+
+function normalizeAndroidRepairItemSettingText_(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_\-‐‑‒–—ー]/g, "")
+    .replace(/battery/g, "バッテリー")
+    .replace(/screen/g, "画面")
+    .replace(/display/g, "画面")
+    .replace(/chargeport/g, "充電口")
+    .replace(/chargingport/g, "充電口")
+    .replace(/camera/g, "カメラ");
+}
+
+function normalizeRomanNumeralsForGas_(value) {
+  return value
+    .replace(
+      /(\d+)(ix|viii|vii|vi|iv|v|iii|ii|i)\b/g,
+      function(match, number, roman) {
+        return number + romanNumeralToNumberForGas_(roman);
+      },
+    )
+    .replace(/\bix\b/g, "9")
+    .replace(/\bviii\b/g, "8")
+    .replace(/\bvii\b/g, "7")
+    .replace(/\bvi\b/g, "6")
+    .replace(/\biv\b/g, "4")
+    .replace(/\bv\b/g, "5")
+    .replace(/\biii\b/g, "3")
+    .replace(/\bii\b/g, "2")
+    .replace(/\bi\b/g, "1");
+}
+
+function romanNumeralToNumberForGas_(value) {
+  const values = {
+    i: "1",
+    ii: "2",
+    iii: "3",
+    iv: "4",
+    v: "5",
+    vi: "6",
+    vii: "7",
+    viii: "8",
+    ix: "9",
+  };
+
+  return values[value] || value;
 }
 
 function createJsonResponse(data) {

@@ -44,6 +44,20 @@ export type RepairItemMasterItem = {
   receptionStatus: string;
 };
 
+export type AndroidModelRepairSettingItem = {
+  rowNumber: number;
+  createdAt: string;
+  updatedAt: string;
+  manufacturer: string;
+  modelName: string;
+  modelNumber: string;
+  repairItemName: string;
+  repairStatus: string;
+  customPrice: number | string;
+  note: string;
+  receptionStatus: string;
+};
+
 export type StaffItem = {
   name?: string;
   storeName?: string;
@@ -71,6 +85,7 @@ export type InitialData = {
   priceMaster: AndroidPriceMasterItem[];
   switchEstimateMaster: SwitchEstimateMasterItem[];
   repairItemMaster: RepairItemMasterItem[];
+  androidModelRepairSettings: AndroidModelRepairSettingItem[];
   staffList: StaffItem[];
   optionMaster: OptionItem[];
   users?: UserMasterItem[];
