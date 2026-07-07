@@ -46,46 +46,6 @@ type AdminReportForm = {
 
 type AdminReportType = (typeof adminReportTypes)[number];
 type UsageGuideTab = "common" | "android" | "switch";
-type MasterAddCategory = "Android" | "Switch";
-
-type MasterAddFeedback = {
-  tone: SaveFeedbackTone;
-  message: string;
-};
-
-type AndroidMasterAddForm = {
-  sortOrder: string;
-  manufacturer: string;
-  modelName: string;
-  modelNumber: string;
-  screenPrice: string;
-  screenStatus: string;
-  batteryStatus: string;
-  chargePortStatus: string;
-  cameraLensStatus: string;
-  sleepButtonStatus: string;
-  volumeButtonStatus: string;
-  note: string;
-  receptionStatus: string;
-};
-
-type SwitchMasterAddForm = {
-  sortOrder: string;
-  modelName: string;
-  modelNumber: string;
-  symptom: string;
-  estimatedRepairType: string;
-  repairPrice: string;
-  repairStatus: string;
-  note: string;
-  receptionStatus: string;
-};
-
-type MasterAddFormState = {
-  category: MasterAddCategory;
-  android: AndroidMasterAddForm;
-  switch: SwitchMasterAddForm;
-};
 
 type FormState = {
   category: InquiryCategory;
@@ -274,20 +234,6 @@ const SWITCH_WORK_TIME_OPTIONS: SwitchWorkTime[] = [
   "120分",
   "要確認",
 ];
-const receptionStatusOptions = ["受付中", "要確認", "非対応"] as const;
-const androidRepairStatusOptions = [
-  "対応可能",
-  "外注必要",
-  "非対応",
-  "要確認",
-  "未登録",
-] as const;
-const switchRepairStatusOptions = [
-  "対応可能",
-  "要確認",
-  "委託・預かり対応",
-  "非対応",
-] as const;
 
 const AUTH_STORAGE_KEY = "repairQuoteAuth";
 
@@ -374,7 +320,6 @@ function createInitialForm(category: InquiryCategory = "Android"): FormState {
 const initialForm: FormState = createInitialForm();
 
 export default function InquiryApp({ initialData }: { initialData: InitialData }) {
-  const [masterData, setMasterData] = useState<InitialData>(initialData);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authChecking, setAuthChecking] = useState(true);
   const [authNotice, setAuthNotice] = useState("");
@@ -395,13 +340,6 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
   const [adminReportFeedback, setAdminReportFeedback] =
     useState<AdminReportFeedback | null>(null);
   const [adminReportSending, setAdminReportSending] = useState(false);
-  const [masterAddOpen, setMasterAddOpen] = useState(false);
-  const [masterAddForm, setMasterAddForm] = useState<MasterAddFormState>(
-    createEmptyMasterAddForm,
-  );
-  const [masterAddFeedback, setMasterAddFeedback] =
-    useState<MasterAddFeedback | null>(null);
-  const [masterAddSaving, setMasterAddSaving] = useState(false);
   const [isUsageGuideOpen, setIsUsageGuideOpen] = useState(false);
   const [usageGuideTab, setUsageGuideTab] =
     useState<UsageGuideTab>("common");
@@ -420,18 +358,18 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
   const title = isSwitch ? "Switch修理見積り" : "Android修理見積り";
 
   const androidRows = useMemo(
-    () => [...masterData.priceMaster].sort(compareSortOrder),
-    [masterData.priceMaster],
+    () => [...initialData.priceMaster].sort(compareSortOrder),
+    [initialData.priceMaster],
   );
 
   const switchRows = useMemo(
-    () => [...masterData.switchEstimateMaster].sort(compareSortOrder),
-    [masterData.switchEstimateMaster],
+    () => [...initialData.switchEstimateMaster].sort(compareSortOrder),
+    [initialData.switchEstimateMaster],
   );
 
   const androidOptions = useMemo(
-    () => normalizeOptions(masterData.optionMaster),
-    [masterData.optionMaster],
+    () => normalizeOptions(initialData.optionMaster),
+    [initialData.optionMaster],
   );
   const switchBodyQuantity = getSwitchBodyQuantity(form.switchSelectedModels);
   const showSwitchOptions = isSwitch && switchBodyQuantity > 0;
@@ -449,13 +387,6 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
   );
 
   const androidMakers = preferredAndroidMakers;
-  const androidMasterMakerOptions = useMemo(() => {
-    const existingMakers = uniqueValues(
-      androidRows.map((item) => item.manufacturer),
-    );
-
-    return uniqueValues([...preferredAndroidMakers, ...existingMakers]);
-  }, [androidRows]);
 
   const androidCandidates = useMemo(() => {
     const query = normalizeSearchText(modelSearch);
@@ -690,7 +621,6 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
   const storeName = authUser?.storeName || "未設定";
   const loginEmail = authUser?.email || "未設定";
   const role = authUser?.role || "未設定";
-  const isAdmin = role === "admin";
   const reportSourceEstimate =
     confirmedEstimate && !hasUnconfirmedChanges ? confirmedEstimate : draftEstimate;
 
@@ -753,91 +683,6 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
     }
 
     setAdminReportOpen(false);
-  }
-
-  function openMasterAdd() {
-    setMasterAddFeedback(null);
-    setMasterAddSaving(false);
-    setMasterAddOpen(true);
-  }
-
-  function closeMasterAdd() {
-    if (masterAddSaving) {
-      return;
-    }
-
-    setMasterAddOpen(false);
-  }
-
-  async function refreshMasterData() {
-    const latestData = await fetchInitialData();
-    setMasterData(latestData);
-  }
-
-  async function submitMasterAdd() {
-    if (!isAdmin) {
-      setMasterAddFeedback({
-        tone: "error",
-        message: "管理者権限が必要です。",
-      });
-      return;
-    }
-
-    const validationMessage = validateMasterAddForm(masterAddForm);
-
-    if (validationMessage) {
-      setMasterAddFeedback({
-        tone: "error",
-        message: validationMessage,
-      });
-      return;
-    }
-
-    if (hasMasterAddDuplicate(masterAddForm, androidRows, switchRows)) {
-      const confirmed = window.confirm(
-        masterAddForm.category === "Android"
-          ? "同じメーカー・機種名・型番のデータが既に存在する可能性があります。それでも追加しますか？"
-          : "同じ機種・症状・修理内容のデータが既に存在する可能性があります。それでも追加しますか？",
-      );
-
-      if (!confirmed) {
-        return;
-      }
-    }
-
-    setMasterAddSaving(true);
-    setMasterAddFeedback({
-      tone: "muted",
-      message: "保存中...",
-    });
-
-    try {
-      const result = await addMasterItem({
-        form: masterAddForm,
-        storeName,
-        loginEmail,
-        role,
-      });
-      await refreshMasterData();
-      setMasterAddForm((current) => resetActiveMasterAddForm(current));
-      setMasterAddFeedback({
-        tone: "success",
-        message:
-          result.message ||
-          "マスターに追加しました。反映されない場合は画面を更新してください。",
-      });
-    } catch (error) {
-      console.error(error);
-      setMasterAddFeedback({
-        tone: "error",
-        message:
-          error instanceof Error && error.message
-            ? error.message
-            : "マスターへの追加に失敗しました。時間をおいて再度お試しください。",
-      });
-    } finally {
-      setMasterAddSaving(false);
-    }
   }
 
   async function submitAdminReport() {
@@ -1244,9 +1089,6 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
     setAdminReportFeedback(null);
     setAdminReportSending(false);
     setAdminReportForm(createEmptyAdminReportForm(currentCategory));
-    setMasterAddOpen(false);
-    setMasterAddFeedback(null);
-    setMasterAddSaving(false);
   }
 
   if (authChecking) {
@@ -1290,7 +1132,6 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
                   setIsUsageGuideOpen(true);
                 }}
               />
-              {isAdmin ? <HeaderButton label="機種追加" onClick={openMasterAdd} /> : null}
               <HeaderButton label="管理者へ報告" onClick={openAdminReport} />
               <HeaderButton label="ログアウト" onClick={logout} />
             </div>
@@ -1674,18 +1515,6 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
           onChange={setAdminReportForm}
           onCancel={closeAdminReport}
           onSubmit={submitAdminReport}
-        />
-      ) : null}
-      {masterAddOpen ? (
-        <MasterAddModal
-          form={masterAddForm}
-          feedback={masterAddFeedback}
-          saving={masterAddSaving}
-          androidMakerOptions={androidMasterMakerOptions}
-          switchModelOptions={switchModels}
-          onChange={setMasterAddForm}
-          onCancel={closeMasterAdd}
-          onSubmit={submitMasterAdd}
         />
       ) : null}
       {isUsageGuideOpen ? (
@@ -2549,359 +2378,6 @@ function AdminReportModal({
               className="min-h-12 w-full min-w-0 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
             >
               キャンセル
-            </button>
-          </div>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function MasterAddModal({
-  form,
-  feedback,
-  saving,
-  androidMakerOptions,
-  switchModelOptions,
-  onChange,
-  onCancel,
-  onSubmit,
-}: {
-  form: MasterAddFormState;
-  feedback: MasterAddFeedback | null;
-  saving: boolean;
-  androidMakerOptions: string[];
-  switchModelOptions: string[];
-  onChange: React.Dispatch<React.SetStateAction<MasterAddFormState>>;
-  onCancel: () => void;
-  onSubmit: () => void | Promise<void>;
-}) {
-  const isAndroid = form.category === "Android";
-
-  function updateCategory(category: MasterAddCategory) {
-    onChange((current) => ({ ...current, category }));
-  }
-
-  function updateAndroidField(
-    key: keyof AndroidMasterAddForm,
-    value: string,
-  ) {
-    onChange((current) => ({
-      ...current,
-      android: {
-        ...current.android,
-        [key]: value,
-      },
-    }));
-  }
-
-  function updateSwitchField(key: keyof SwitchMasterAddForm, value: string) {
-    onChange((current) => ({
-      ...current,
-      switch: {
-        ...current.switch,
-        [key]: value,
-      },
-    }));
-  }
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          onCancel();
-        }
-      }}
-    >
-      <section className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-3xl overflow-y-auto rounded-lg bg-white p-5 shadow-xl sm:p-6">
-        <div className="flex min-w-0 items-start justify-between gap-4">
-          <div className="min-w-0">
-            <h2 className="text-xl font-bold text-slate-950">機種追加</h2>
-          </div>
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={saving}
-            className="min-h-11 shrink-0 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
-          >
-            閉じる
-          </button>
-        </div>
-
-        <div className="mt-5 grid min-w-0 gap-4">
-          <Field label="追加対象カテゴリ" requirement="必須">
-            <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-              {categories.map((category) => (
-                <label
-                  key={category}
-                  className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50"
-                >
-                  <input
-                    type="radio"
-                    checked={form.category === category}
-                    onChange={() => updateCategory(category)}
-                    className="h-5 w-5 shrink-0 accent-blue-700"
-                  />
-                  <span>{category}</span>
-                </label>
-              ))}
-            </div>
-          </Field>
-
-          {isAndroid ? (
-            <div className="grid min-w-0 gap-4">
-              <Field label="メーカー" requirement="必須">
-                <input
-                  value={form.android.manufacturer}
-                  list="android-master-maker-options"
-                  onChange={(event) =>
-                    updateAndroidField("manufacturer", event.target.value)
-                  }
-                  className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                />
-                <datalist id="android-master-maker-options">
-                  {androidMakerOptions.map((maker) => (
-                    <option key={maker} value={maker} />
-                  ))}
-                </datalist>
-              </Field>
-              <Field label="機種名" requirement="必須">
-                <input
-                  value={form.android.modelName}
-                  onChange={(event) =>
-                    updateAndroidField("modelName", event.target.value)
-                  }
-                  className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                />
-              </Field>
-              <Field label="受付状態" requirement="必須">
-                <select
-                  value={form.android.receptionStatus}
-                  onChange={(event) =>
-                    updateAndroidField("receptionStatus", event.target.value)
-                  }
-                  className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                >
-                  {receptionStatusOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <div className="grid min-w-0 gap-4 sm:grid-cols-2">
-                <Field label="並び順" requirement="任意">
-                  <input
-                    value={form.android.sortOrder}
-                    inputMode="numeric"
-                    onChange={(event) =>
-                      updateAndroidField("sortOrder", event.target.value)
-                    }
-                    className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                  />
-                </Field>
-                <Field label="型番" requirement="任意">
-                  <input
-                    value={form.android.modelNumber}
-                    onChange={(event) =>
-                      updateAndroidField("modelNumber", event.target.value)
-                    }
-                    className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                  />
-                </Field>
-              </div>
-              <Field label="画面修理価格" requirement="任意">
-                <input
-                  value={form.android.screenPrice}
-                  type="number"
-                  min="0"
-                  onChange={(event) =>
-                    updateAndroidField("screenPrice", event.target.value)
-                  }
-                  className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                />
-              </Field>
-              <div className="grid min-w-0 gap-4 sm:grid-cols-2">
-                {[
-                  ["screenStatus", "画面修理対応区分"],
-                  ["batteryStatus", "バッテリー対応区分"],
-                  ["chargePortStatus", "充電口対応区分"],
-                  ["cameraLensStatus", "カメラレンズ対応区分"],
-                  ["sleepButtonStatus", "スリープボタン対応区分"],
-                  ["volumeButtonStatus", "音量ボタン対応区分"],
-                ].map(([key, label]) => (
-                  <Field key={key} label={label} requirement="任意">
-                    <select
-                      value={form.android[key as keyof AndroidMasterAddForm]}
-                      onChange={(event) =>
-                        updateAndroidField(
-                          key as keyof AndroidMasterAddForm,
-                          event.target.value,
-                        )
-                      }
-                      className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                    >
-                      <option value="">未選択</option>
-                      {androidRepairStatusOptions.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                ))}
-              </div>
-              <Field label="備考" requirement="任意">
-                <textarea
-                  value={form.android.note}
-                  rows={4}
-                  onChange={(event) =>
-                    updateAndroidField("note", event.target.value)
-                  }
-                  className="min-h-28 w-full max-w-full min-w-0 resize-y rounded-lg border border-slate-300 bg-white px-4 py-3 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                />
-              </Field>
-            </div>
-          ) : (
-            <div className="grid min-w-0 gap-4">
-              <Field label="機種名" requirement="必須">
-                <input
-                  value={form.switch.modelName}
-                  list="switch-master-model-options"
-                  onChange={(event) =>
-                    updateSwitchField("modelName", event.target.value)
-                  }
-                  className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                />
-                <datalist id="switch-master-model-options">
-                  {switchModelOptions.map((modelName) => (
-                    <option key={modelName} value={modelName} />
-                  ))}
-                </datalist>
-              </Field>
-              <Field label="症状" requirement="必須">
-                <input
-                  value={form.switch.symptom}
-                  onChange={(event) =>
-                    updateSwitchField("symptom", event.target.value)
-                  }
-                  className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                />
-              </Field>
-              <Field label="想定修理内容" requirement="必須">
-                <input
-                  value={form.switch.estimatedRepairType}
-                  onChange={(event) =>
-                    updateSwitchField("estimatedRepairType", event.target.value)
-                  }
-                  className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                />
-              </Field>
-              <Field label="修理費用" requirement="必須">
-                <input
-                  value={form.switch.repairPrice}
-                  placeholder="6900 / 16500〜23500 / 要相談"
-                  onChange={(event) =>
-                    updateSwitchField("repairPrice", event.target.value)
-                  }
-                  className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                />
-              </Field>
-              <div className="grid min-w-0 gap-4 sm:grid-cols-2">
-                <Field label="対応区分" requirement="必須">
-                  <select
-                    value={form.switch.repairStatus}
-                    onChange={(event) =>
-                      updateSwitchField("repairStatus", event.target.value)
-                    }
-                    className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                  >
-                    {switchRepairStatusOptions.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="受付状態" requirement="必須">
-                  <select
-                    value={form.switch.receptionStatus}
-                    onChange={(event) =>
-                      updateSwitchField("receptionStatus", event.target.value)
-                    }
-                    className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                  >
-                    {receptionStatusOptions.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              </div>
-              <div className="grid min-w-0 gap-4 sm:grid-cols-2">
-                <Field label="並び順" requirement="任意">
-                  <input
-                    value={form.switch.sortOrder}
-                    inputMode="numeric"
-                    onChange={(event) =>
-                      updateSwitchField("sortOrder", event.target.value)
-                    }
-                    className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                  />
-                </Field>
-                <Field label="型番" requirement="任意">
-                  <input
-                    value={form.switch.modelNumber}
-                    onChange={(event) =>
-                      updateSwitchField("modelNumber", event.target.value)
-                    }
-                    className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                  />
-                </Field>
-              </div>
-              <Field label="案内文補足" requirement="任意">
-                <textarea
-                  value={form.switch.note}
-                  rows={4}
-                  onChange={(event) => updateSwitchField("note", event.target.value)}
-                  className="min-h-28 w-full max-w-full min-w-0 resize-y rounded-lg border border-slate-300 bg-white px-4 py-3 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                />
-              </Field>
-            </div>
-          )}
-
-          {feedback ? (
-            <p
-              className={`rounded-md px-4 py-3 text-sm font-semibold leading-6 ${
-                feedback.tone === "success"
-                  ? "bg-emerald-50 text-emerald-700"
-                  : feedback.tone === "error"
-                    ? "bg-red-50 text-red-700"
-                    : "bg-slate-50 text-slate-500"
-              }`}
-            >
-              {feedback.message}
-            </p>
-          ) : null}
-
-          <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-            <button
-              type="button"
-              onClick={onSubmit}
-              disabled={saving}
-              className="min-h-12 w-full min-w-0 rounded-md bg-slate-900 px-4 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-            >
-              {saving ? "保存中..." : "保存"}
-            </button>
-            <button
-              type="button"
-              onClick={onCancel}
-              disabled={saving}
-              className="min-h-12 w-full min-w-0 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
-            >
-              閉じる
             </button>
           </div>
         </div>
@@ -4023,151 +3499,6 @@ function createEmptyAdminReportForm(category: InquiryCategory): AdminReportForm 
     targetRepairOrSymptom: "",
     message: "",
   };
-}
-
-function createEmptyAndroidMasterAddForm(): AndroidMasterAddForm {
-  return {
-    sortOrder: "",
-    manufacturer: "",
-    modelName: "",
-    modelNumber: "",
-    screenPrice: "",
-    screenStatus: "",
-    batteryStatus: "",
-    chargePortStatus: "",
-    cameraLensStatus: "",
-    sleepButtonStatus: "",
-    volumeButtonStatus: "",
-    note: "",
-    receptionStatus: "受付中",
-  };
-}
-
-function createEmptySwitchMasterAddForm(): SwitchMasterAddForm {
-  return {
-    sortOrder: "",
-    modelName: "",
-    modelNumber: "",
-    symptom: "",
-    estimatedRepairType: "",
-    repairPrice: "",
-    repairStatus: "対応可能",
-    note: "",
-    receptionStatus: "受付中",
-  };
-}
-
-function createEmptyMasterAddForm(): MasterAddFormState {
-  return {
-    category: "Android",
-    android: createEmptyAndroidMasterAddForm(),
-    switch: createEmptySwitchMasterAddForm(),
-  };
-}
-
-function resetActiveMasterAddForm(form: MasterAddFormState): MasterAddFormState {
-  return form.category === "Android"
-    ? {
-        ...form,
-        android: createEmptyAndroidMasterAddForm(),
-      }
-    : {
-        ...form,
-        switch: createEmptySwitchMasterAddForm(),
-      };
-}
-
-function validateMasterAddForm(form: MasterAddFormState) {
-  if (form.category === "Android") {
-    const android = normalizeAndroidMasterAddForm(form.android);
-
-    if (!android.manufacturer || !android.modelName || !android.receptionStatus) {
-      return "必須項目が不足しています。";
-    }
-
-    return "";
-  }
-
-  const switchForm = normalizeSwitchMasterAddForm(form.switch);
-
-  if (
-    !switchForm.modelName ||
-    !switchForm.symptom ||
-    !switchForm.estimatedRepairType ||
-    !switchForm.repairPrice ||
-    !switchForm.repairStatus ||
-    !switchForm.receptionStatus
-  ) {
-    return "必須項目が不足しています。";
-  }
-
-  return "";
-}
-
-function normalizeAndroidMasterAddForm(
-  form: AndroidMasterAddForm,
-): AndroidMasterAddForm {
-  return {
-    sortOrder: form.sortOrder.trim(),
-    manufacturer: form.manufacturer.trim(),
-    modelName: form.modelName.trim(),
-    modelNumber: form.modelNumber.trim(),
-    screenPrice: form.screenPrice.trim(),
-    screenStatus: form.screenStatus.trim(),
-    batteryStatus: form.batteryStatus.trim(),
-    chargePortStatus: form.chargePortStatus.trim(),
-    cameraLensStatus: form.cameraLensStatus.trim(),
-    sleepButtonStatus: form.sleepButtonStatus.trim(),
-    volumeButtonStatus: form.volumeButtonStatus.trim(),
-    note: form.note.trim(),
-    receptionStatus: form.receptionStatus.trim(),
-  };
-}
-
-function normalizeSwitchMasterAddForm(
-  form: SwitchMasterAddForm,
-): SwitchMasterAddForm {
-  return {
-    sortOrder: form.sortOrder.trim(),
-    modelName: form.modelName.trim(),
-    modelNumber: form.modelNumber.trim(),
-    symptom: form.symptom.trim(),
-    estimatedRepairType: form.estimatedRepairType.trim(),
-    repairPrice: form.repairPrice.trim(),
-    repairStatus: form.repairStatus.trim(),
-    note: form.note.trim(),
-    receptionStatus: form.receptionStatus.trim(),
-  };
-}
-
-function hasMasterAddDuplicate(
-  form: MasterAddFormState,
-  androidRows: AndroidPriceMasterItem[],
-  switchRows: SwitchEstimateMasterItem[],
-) {
-  if (form.category === "Android") {
-    const android = normalizeAndroidMasterAddForm(form.android);
-
-    return androidRows.some(
-      (row) =>
-        sameMasterValue(row.manufacturer, android.manufacturer) &&
-        sameMasterValue(row.modelName, android.modelName) &&
-        sameMasterValue(row.modelNumber, android.modelNumber),
-    );
-  }
-
-  const switchForm = normalizeSwitchMasterAddForm(form.switch);
-
-  return switchRows.some(
-    (row) =>
-      sameMasterValue(row.modelName, switchForm.modelName) &&
-      sameMasterValue(row.symptom, switchForm.symptom) &&
-      sameMasterValue(row.estimatedRepairType, switchForm.estimatedRepairType),
-  );
-}
-
-function sameMasterValue(left: unknown, right: unknown) {
-  return stringValue(left) === stringValue(right);
 }
 
 function createAdminReportInitialForm(
@@ -5956,42 +5287,6 @@ async function fetchUserMaster() {
     .filter((user): user is AuthUser => Boolean(user));
 }
 
-async function fetchInitialData() {
-  const apiUrl = process.env.NEXT_PUBLIC_APPS_SCRIPT_API_URL;
-
-  if (!apiUrl) {
-    throw new Error("NEXT_PUBLIC_APPS_SCRIPT_API_URL is not set.");
-  }
-
-  const response = await fetch(`${apiUrl}?action=getInitialData`, {
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    throw new Error(`Initial data fetch failed with status ${response.status}.`);
-  }
-
-  const result = (await response.json()) as {
-    ok?: boolean;
-    success?: boolean;
-    data?: Partial<InitialData>;
-    message?: string;
-    error?: string;
-  };
-
-  if (result.ok === false || result.success === false) {
-    throw new Error(result.error || result.message || "Initial data fetch failed.");
-  }
-
-  return {
-    priceMaster: result.data?.priceMaster ?? [],
-    switchEstimateMaster: result.data?.switchEstimateMaster ?? [],
-    staffList: result.data?.staffList ?? [],
-    optionMaster: result.data?.optionMaster ?? [],
-    users: result.data?.users ?? [],
-  };
-}
-
 async function saveInquiry({
   storeName,
   loginEmail,
@@ -6033,86 +5328,6 @@ async function saveInquiry({
 
   if (!response.ok) {
     throw new Error(`Inquiry save failed with status ${response.status}.`);
-  }
-}
-
-async function addMasterItem({
-  form,
-  storeName,
-  loginEmail,
-  role,
-}: {
-  form: MasterAddFormState;
-  storeName: string;
-  loginEmail: string;
-  role: string;
-}) {
-  const apiUrl = process.env.NEXT_PUBLIC_APPS_SCRIPT_API_URL;
-
-  if (!apiUrl) {
-    throw new Error("NEXT_PUBLIC_APPS_SCRIPT_API_URL is not set.");
-  }
-
-  const payload =
-    form.category === "Android"
-      ? {
-          ...normalizeAndroidMasterAddForm(form.android),
-          storeName,
-          loginEmail,
-          role,
-        }
-      : {
-          ...normalizeSwitchMasterAddForm(form.switch),
-          storeName,
-          loginEmail,
-          role,
-        };
-
-  const response = await fetch(apiUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "text/plain;charset=utf-8",
-    },
-    body: JSON.stringify({
-      action:
-        form.category === "Android"
-          ? "addAndroidMasterItem"
-          : "addSwitchMasterItem",
-      payload,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Master add failed with status ${response.status}.`);
-  }
-
-  const text = await response.text();
-
-  if (!text) {
-    return { message: "" };
-  }
-
-  try {
-    const result = JSON.parse(text) as {
-      success?: boolean;
-      ok?: boolean;
-      message?: string;
-    };
-
-    if (result.success === false || result.ok === false) {
-      throw new Error(
-        result.message ||
-          "マスターへの追加に失敗しました。時間をおいて再度お試しください。",
-      );
-    }
-
-    return { message: result.message || "" };
-  } catch (error) {
-    if (error instanceof SyntaxError) {
-      return { message: "" };
-    }
-
-    throw error;
   }
 }
 
