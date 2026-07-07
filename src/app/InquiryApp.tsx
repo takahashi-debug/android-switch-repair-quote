@@ -280,6 +280,7 @@ const androidPriceSupportSettingHelpText =
   "価格・対応設定では、店頭対応可・要確認・外注必要・非対応・料金手動設定を選択できます。";
 const manualPriceStoredStatus = "料金手動設定";
 const manualPriceStoredPrefix = "料金手動設定:";
+const androidStatusPriceSeparator = ":";
 const receptionStatusOptions = ["受付可", "要確認", "受付停止"];
 const repairItemPriceTypes = ["固定価格", "機種別価格", "要相談", "非対応"];
 const repairItemTargetCategories = [
@@ -2895,12 +2896,6 @@ function AndroidMasterPanel({
                 title="画面修理"
                 status={form.screenStatus}
                 manualPrice={form.screenPrice}
-                priceLabel={
-                  form.screenStatus === manualPriceStatusOption
-                    ? "料金を手動設定の場合の金額"
-                    : "価格"
-                }
-                showManualPrice
                 onStatusChange={(value) => onFormChange((current) => ({ ...current, screenStatus: value }))}
                 onManualPriceChange={(value) => onFormChange((current) => ({ ...current, screenPrice: value }))}
               />
@@ -3550,43 +3545,35 @@ function AndroidFixedRepairCard({
   title,
   status,
   manualPrice,
-  priceLabel = "料金を手動設定の場合の金額",
-  showManualPrice = false,
   onStatusChange,
   onManualPriceChange,
 }: {
   title: string;
   status: string;
   manualPrice: string;
-  priceLabel?: string;
-  showManualPrice?: boolean;
   onStatusChange: (value: string) => void;
   onManualPriceChange: (value: string) => void;
 }) {
-  const needsManualPrice = showManualPrice || status === manualPriceStatusOption;
-
   return (
     <section className="grid min-w-0 gap-3 rounded-md border border-slate-200 bg-white p-4">
       <h4 className="text-sm font-bold text-slate-900">{title}</h4>
       <MasterSelectInput
-        label={`${title}の価格・対応設定`}
+        label="価格・対応設定"
         value={status}
-        options={[...supportStatusOptions, manualPriceStatusOption]}
+        options={androidAdditionalRepairStatusOptions}
         onChange={onStatusChange}
       />
-      {needsManualPrice ? (
-        <Field
-          label={priceLabel}
-          requirement={status === manualPriceStatusOption ? "必須" : "任意"}
-        >
-          <input
-            inputMode="numeric"
-            value={manualPrice}
-            onChange={(event) => onManualPriceChange(event.target.value)}
-            className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-          />
-        </Field>
-      ) : null}
+      <Field label="価格" requirement="任意">
+        <input
+          inputMode="numeric"
+          value={manualPrice}
+          onChange={(event) => onManualPriceChange(event.target.value)}
+          className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+        />
+      </Field>
+      <p className="text-xs font-semibold leading-5 text-slate-500">
+        価格を変更すると、この機種だけの個別価格として保存されます。
+      </p>
     </section>
   );
 }
@@ -5135,15 +5122,15 @@ function createEmptyAndroidMasterForm(): AndroidMasterForm {
     modelNumber: "",
     screenPrice: "",
     screenStatus: "",
-    batteryManualPrice: "",
+    batteryManualPrice: stringValue(ANDROID_FIXED_REPAIR_PRICES.battery),
     batteryStatus: "",
-    chargePortManualPrice: "",
+    chargePortManualPrice: stringValue(ANDROID_FIXED_REPAIR_PRICES.chargePort),
     chargePortStatus: "",
-    cameraLensManualPrice: "",
+    cameraLensManualPrice: stringValue(ANDROID_FIXED_REPAIR_PRICES.cameraLens),
     cameraLensStatus: "",
-    sleepButtonManualPrice: "",
+    sleepButtonManualPrice: stringValue(ANDROID_FIXED_REPAIR_PRICES.sleepButton),
     sleepButtonStatus: "",
-    volumeButtonManualPrice: "",
+    volumeButtonManualPrice: stringValue(ANDROID_FIXED_REPAIR_PRICES.volumeButton),
     volumeButtonStatus: "",
     note: "",
     receptionStatus: "受付可",
@@ -5186,11 +5173,26 @@ function createAndroidMasterFormFromItem(
   androidModelRepairSettings: AndroidModelRepairSettingItem[] = [],
 ): AndroidMasterForm {
   const screenStatus = parseManualPriceStatus(item.screenStatus);
-  const batteryStatus = parseManualPriceStatus(item.batteryStatus);
-  const chargePortStatus = parseManualPriceStatus(item.chargePortStatus);
-  const cameraLensStatus = parseManualPriceStatus(item.cameraLensStatus);
-  const sleepButtonStatus = parseManualPriceStatus(item.sleepButtonStatus);
-  const volumeButtonStatus = parseManualPriceStatus(item.volumeButtonStatus);
+  const batteryStatus = parseAndroidFixedStatusValue(
+    item.batteryStatus,
+    ANDROID_FIXED_REPAIR_PRICES.battery,
+  );
+  const chargePortStatus = parseAndroidFixedStatusValue(
+    item.chargePortStatus,
+    ANDROID_FIXED_REPAIR_PRICES.chargePort,
+  );
+  const cameraLensStatus = parseAndroidFixedStatusValue(
+    item.cameraLensStatus,
+    ANDROID_FIXED_REPAIR_PRICES.cameraLens,
+  );
+  const sleepButtonStatus = parseAndroidFixedStatusValue(
+    item.sleepButtonStatus,
+    ANDROID_FIXED_REPAIR_PRICES.sleepButton,
+  );
+  const volumeButtonStatus = parseAndroidFixedStatusValue(
+    item.volumeButtonStatus,
+    ANDROID_FIXED_REPAIR_PRICES.volumeButton,
+  );
 
   return {
     rowNumber: item.rowNumber,
@@ -5665,36 +5667,75 @@ function parseManualPriceStatus(value: string) {
   };
 }
 
+function parseAndroidFixedStatusValue(
+  value: string,
+  defaultPrice: number,
+) {
+  const parsedManualStatus = parseManualPriceStatus(value);
+
+  if (
+    parsedManualStatus.manualPrice ||
+    parsedManualStatus.status === manualPriceStatusOption
+  ) {
+    return {
+      status: parsedManualStatus.status,
+      manualPrice: parsedManualStatus.manualPrice || stringValue(defaultPrice),
+    };
+  }
+
+  const normalized = stringValue(value).normalize("NFKC").replace(/,/g, "");
+  const separatorIndex = normalized.lastIndexOf(androidStatusPriceSeparator);
+
+  if (separatorIndex <= 0) {
+    return {
+      status: parsedManualStatus.status,
+      manualPrice: stringValue(defaultPrice),
+    };
+  }
+
+  const status = normalized.slice(0, separatorIndex).trim();
+  const manualPrice = normalizeManualPrice(
+    normalized.slice(separatorIndex + androidStatusPriceSeparator.length),
+  );
+
+  return {
+    status: status || parsedManualStatus.status,
+    manualPrice: manualPrice || stringValue(defaultPrice),
+  };
+}
+
 function validateAndroidManualPrices(form: AndroidMasterForm) {
   const missingLabels = [
     form.screenStatus === manualPriceStatusOption &&
     !normalizeManualPrice(form.screenPrice)
       ? "画面修理"
       : "",
-    form.batteryStatus === manualPriceStatusOption &&
-    !normalizeManualPrice(form.batteryManualPrice)
+  ].filter(Boolean);
+  const invalidLabels = [
+    hasInvalidManualPrice(form.screenPrice) ? "画面修理" : "",
+    hasInvalidManualPrice(form.batteryManualPrice)
       ? "バッテリー"
       : "",
-    form.chargePortStatus === manualPriceStatusOption &&
-    !normalizeManualPrice(form.chargePortManualPrice)
+    hasInvalidManualPrice(form.chargePortManualPrice)
       ? "充電口"
       : "",
-    form.cameraLensStatus === manualPriceStatusOption &&
-    !normalizeManualPrice(form.cameraLensManualPrice)
+    hasInvalidManualPrice(form.cameraLensManualPrice)
       ? "カメラレンズ"
       : "",
-    form.sleepButtonStatus === manualPriceStatusOption &&
-    !normalizeManualPrice(form.sleepButtonManualPrice)
+    hasInvalidManualPrice(form.sleepButtonManualPrice)
       ? "スリープボタン"
       : "",
-    form.volumeButtonStatus === manualPriceStatusOption &&
-    !normalizeManualPrice(form.volumeButtonManualPrice)
+    hasInvalidManualPrice(form.volumeButtonManualPrice)
       ? "音量ボタン"
       : "",
   ].filter(Boolean);
 
-  return missingLabels.length > 0
-    ? `${missingLabels.join("、")}の手動設定金額を半角数字で入力してください。`
+  if (missingLabels.length > 0) {
+    return `${missingLabels.join("、")}の手動設定金額を半角数字で入力してください。`;
+  }
+
+  return invalidLabels.length > 0
+    ? `${invalidLabels.join("、")}の価格を半角数字で入力してください。`
     : "";
 }
 
@@ -5730,40 +5771,55 @@ function createAndroidMasterPayloadItem(form: AndroidMasterForm) {
     batteryStatus: createAndroidStatusPayloadValue(
       form.batteryStatus,
       form.batteryManualPrice,
+      ANDROID_FIXED_REPAIR_PRICES.battery,
     ),
     chargePortStatus: createAndroidStatusPayloadValue(
       form.chargePortStatus,
       form.chargePortManualPrice,
+      ANDROID_FIXED_REPAIR_PRICES.chargePort,
     ),
     cameraLensStatus: createAndroidStatusPayloadValue(
       form.cameraLensStatus,
       form.cameraLensManualPrice,
+      ANDROID_FIXED_REPAIR_PRICES.cameraLens,
     ),
     sleepButtonStatus: createAndroidStatusPayloadValue(
       form.sleepButtonStatus,
       form.sleepButtonManualPrice,
+      ANDROID_FIXED_REPAIR_PRICES.sleepButton,
     ),
     volumeButtonStatus: createAndroidStatusPayloadValue(
       form.volumeButtonStatus,
       form.volumeButtonManualPrice,
+      ANDROID_FIXED_REPAIR_PRICES.volumeButton,
     ),
     note: form.note.trim(),
     receptionStatus: form.receptionStatus,
   };
 }
 
-function createAndroidStatusPayloadValue(status: string, manualPrice: string) {
-  const normalizedPrice = normalizeManualPrice(manualPrice);
+function createAndroidStatusPayloadValue(
+  status: string,
+  manualPrice: string,
+  defaultPrice: number,
+) {
+  const normalizedStatus = status || "要確認";
+  const normalizedPrice =
+    normalizeManualPrice(manualPrice) || stringValue(defaultPrice);
 
-  return status === manualPriceStatusOption
+  return normalizedStatus === manualPriceStatusOption
     ? `${manualPriceStoredPrefix}${normalizedPrice}`
-    : status;
+    : `${normalizedStatus}${androidStatusPriceSeparator}${normalizedPrice}`;
 }
 
 function normalizeManualPrice(value: string) {
   const normalized = value.normalize("NFKC").trim().replace(/,/g, "");
 
   return /^\d+$/.test(normalized) ? normalized : "";
+}
+
+function hasInvalidManualPrice(value: string) {
+  return Boolean(value.trim()) && !normalizeManualPrice(value);
 }
 
 function findAndroidDuplicateCandidates(
@@ -7118,9 +7174,8 @@ function getAndroidRepairEstimate(
   item: AndroidPriceMasterItem,
   definition: AndroidRepairDefinition,
 ) {
-  const status = stringValue(item[definition.statusKey]);
-
   if (definition.key === "screen") {
+    const status = stringValue(item[definition.statusKey]);
     const screenPrice = item.screenPrice;
 
     return {
@@ -7136,37 +7191,14 @@ function getAndroidRepairEstimate(
     };
   }
 
-  if (status === "店舗対応可") {
-    return {
-      repairType: definition.label,
-      price: ANDROID_FIXED_REPAIR_PRICES[definition.key],
-      status,
-      note: item.note,
-      receptionStatus: item.receptionStatus,
-    };
-  }
-
-  const manualPrice = getManualPriceFromStatus(status);
-
-  if (manualPrice !== undefined) {
-    return {
-      repairType: definition.label,
-      price: manualPrice,
-      status: "店舗対応可",
-      note: item.note,
-      receptionStatus: item.receptionStatus,
-    };
-  }
-
-  if (status === "外注必要") {
-    return {
-      repairType: definition.label,
-      price: ANDROID_OUTSOURCE_REPAIR_PRICE,
-      status,
-      note: item.note,
-      receptionStatus: item.receptionStatus,
-    };
-  }
+  const parsedStatus = parseAndroidFixedStatusValue(
+    stringValue(item[definition.statusKey]),
+    ANDROID_FIXED_REPAIR_PRICES[definition.key],
+  );
+  const status = parsedStatus.status;
+  const estimatePrice =
+    normalizeManualPrice(parsedStatus.manualPrice) ||
+    stringValue(ANDROID_FIXED_REPAIR_PRICES[definition.key]);
 
   if (status === "非対応") {
     return {
@@ -7178,10 +7210,44 @@ function getAndroidRepairEstimate(
     };
   }
 
+  if (status === "要確認") {
+    return {
+      repairType: definition.label,
+      price: estimatePrice,
+      status,
+      note: item.note,
+      receptionStatus: item.receptionStatus,
+    };
+  }
+
+  if (status === "外注必要") {
+    return {
+      repairType: definition.label,
+      price: estimatePrice,
+      status,
+      note: item.note,
+      receptionStatus: item.receptionStatus,
+    };
+  }
+
+  const manualPrice = getManualPriceFromStatus(
+    stringValue(item[definition.statusKey]),
+  );
+
+  if (manualPrice !== undefined) {
+    return {
+      repairType: definition.label,
+      price: manualPrice,
+      status: "店舗対応可",
+      note: item.note,
+      receptionStatus: item.receptionStatus,
+    };
+  }
+
   return {
     repairType: definition.label,
-    price: "要確認",
-    status,
+    price: estimatePrice,
+    status: status === manualPriceStatusOption ? "店舗対応可" : status,
     note: item.note,
     receptionStatus: item.receptionStatus,
   };
