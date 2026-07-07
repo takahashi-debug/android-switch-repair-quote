@@ -30,6 +30,20 @@ export type SwitchEstimateMasterItem = {
   receptionStatus: string;
 };
 
+export type RepairItemMasterItem = {
+  rowNumber: number;
+  sortOrder: number | string;
+  category: "Android" | "Switch" | string;
+  repairItemName: string;
+  displayName: string;
+  priceType: string;
+  standardPrice: number | string;
+  repairStatus: string;
+  targetModelCategory: string;
+  note: string;
+  receptionStatus: string;
+};
+
 export type StaffItem = {
   name?: string;
   storeName?: string;
@@ -56,6 +70,7 @@ export type OptionItem = {
 export type InitialData = {
   priceMaster: AndroidPriceMasterItem[];
   switchEstimateMaster: SwitchEstimateMasterItem[];
+  repairItemMaster: RepairItemMasterItem[];
   staffList: StaffItem[];
   optionMaster: OptionItem[];
   users?: UserMasterItem[];

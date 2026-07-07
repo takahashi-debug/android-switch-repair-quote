@@ -7,6 +7,7 @@ import type {
   InitialData,
   InquiryCategory,
   OptionItem,
+  RepairItemMasterItem,
   SwitchEstimateMasterItem,
   UserMasterItem,
 } from "./types";
@@ -46,6 +47,59 @@ type AdminReportForm = {
 
 type AdminReportType = (typeof adminReportTypes)[number];
 type UsageGuideTab = "common" | "android" | "switch";
+type MasterManagementTab = "Android" | "Switch" | "修理項目";
+type AndroidMasterMode = "新規機種追加" | "既存データ変更";
+type SwitchMasterMode = "新規項目追加" | "既存データ変更";
+type RepairItemMode = "修理項目追加" | "修理項目変更";
+
+type AndroidMasterForm = {
+  rowNumber?: number;
+  sortOrder: string;
+  manufacturer: string;
+  modelName: string;
+  modelNumber: string;
+  screenPrice: string;
+  screenStatus: string;
+  batteryStatus: string;
+  chargePortStatus: string;
+  cameraLensStatus: string;
+  sleepButtonStatus: string;
+  volumeButtonStatus: string;
+  note: string;
+  receptionStatus: string;
+};
+
+type SwitchMasterForm = {
+  rowNumber?: number;
+  sortOrder: string;
+  modelName: string;
+  modelNumber: string;
+  symptom: string;
+  estimatedRepairType: string;
+  repairPrice: string;
+  repairStatus: string;
+  note: string;
+  receptionStatus: string;
+};
+
+type RepairItemForm = {
+  rowNumber?: number;
+  sortOrder: string;
+  category: InquiryCategory | "";
+  repairItemName: string;
+  displayName: string;
+  priceType: string;
+  standardPrice: string;
+  repairStatus: string;
+  targetModelCategory: string;
+  note: string;
+  receptionStatus: string;
+};
+
+type MasterFeedback = {
+  tone: SaveFeedbackTone;
+  message: string;
+};
 
 type FormState = {
   category: InquiryCategory;
@@ -163,6 +217,21 @@ const adminReportTypes = [
   "表示不具合",
   "その他",
 ] as const;
+const masterManagementTabs: MasterManagementTab[] = ["Android", "Switch", "修理項目"];
+const androidMasterModes: AndroidMasterMode[] = ["新規機種追加", "既存データ変更"];
+const switchMasterModes: SwitchMasterMode[] = ["新規項目追加", "既存データ変更"];
+const repairItemModes: RepairItemMode[] = ["修理項目追加", "修理項目変更"];
+const supportStatusOptions = ["店舗対応可", "要確認", "委託対応", "非対応"];
+const receptionStatusOptions = ["受付可", "要確認", "受付停止"];
+const repairItemPriceTypes = ["固定価格", "機種別価格", "要相談", "非対応"];
+const repairItemTargetCategories = [
+  "Android全般",
+  "Switch本体",
+  "Joy-Con",
+  "Proコントローラー",
+  "Joy-Con 2",
+  "全体",
+];
 const preferredAndroidMakers = [
   "Google Pixel",
   "Xperia",
@@ -320,6 +389,7 @@ function createInitialForm(category: InquiryCategory = "Android"): FormState {
 const initialForm: FormState = createInitialForm();
 
 export default function InquiryApp({ initialData }: { initialData: InitialData }) {
+  const [masterData, setMasterData] = useState(initialData);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authChecking, setAuthChecking] = useState(true);
   const [authNotice, setAuthNotice] = useState("");
@@ -340,6 +410,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
   const [adminReportFeedback, setAdminReportFeedback] =
     useState<AdminReportFeedback | null>(null);
   const [adminReportSending, setAdminReportSending] = useState(false);
+  const [masterManagementOpen, setMasterManagementOpen] = useState(false);
   const [isUsageGuideOpen, setIsUsageGuideOpen] = useState(false);
   const [usageGuideTab, setUsageGuideTab] =
     useState<UsageGuideTab>("common");
@@ -358,18 +429,18 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
   const title = isSwitch ? "Switch修理見積り" : "Android修理見積り";
 
   const androidRows = useMemo(
-    () => [...initialData.priceMaster].sort(compareSortOrder),
-    [initialData.priceMaster],
+    () => [...masterData.priceMaster].sort(compareSortOrder),
+    [masterData.priceMaster],
   );
 
   const switchRows = useMemo(
-    () => [...initialData.switchEstimateMaster].sort(compareSortOrder),
-    [initialData.switchEstimateMaster],
+    () => [...masterData.switchEstimateMaster].sort(compareSortOrder),
+    [masterData.switchEstimateMaster],
   );
 
   const androidOptions = useMemo(
-    () => normalizeOptions(initialData.optionMaster),
-    [initialData.optionMaster],
+    () => normalizeOptions(masterData.optionMaster),
+    [masterData.optionMaster],
   );
   const switchBodyQuantity = getSwitchBodyQuantity(form.switchSelectedModels);
   const showSwitchOptions = isSwitch && switchBodyQuantity > 0;
@@ -621,6 +692,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
   const storeName = authUser?.storeName || "未設定";
   const loginEmail = authUser?.email || "未設定";
   const role = authUser?.role || "未設定";
+  const isAdmin = authUser?.role === "admin";
   const reportSourceEstimate =
     confirmedEstimate && !hasUnconfirmedChanges ? confirmedEstimate : draftEstimate;
 
@@ -668,6 +740,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
     setLoginError("");
     setLoginEmailInput("");
     setAdminReportOpen(false);
+    setMasterManagementOpen(false);
   }
 
   function openAdminReport() {
@@ -675,6 +748,11 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
     setAdminReportFeedback(null);
     setAdminReportSending(false);
     setAdminReportOpen(true);
+  }
+
+  async function refreshMasterData() {
+    const nextData = await fetchInitialData();
+    setMasterData(nextData);
   }
 
   function closeAdminReport() {
@@ -1132,6 +1210,12 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
                   setIsUsageGuideOpen(true);
                 }}
               />
+              {isAdmin ? (
+                <HeaderButton
+                  label="マスター管理"
+                  onClick={() => setMasterManagementOpen(true)}
+                />
+              ) : null}
               <HeaderButton label="管理者へ報告" onClick={openAdminReport} />
               <HeaderButton label="ログアウト" onClick={logout} />
             </div>
@@ -1515,6 +1599,16 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
           onChange={setAdminReportForm}
           onCancel={closeAdminReport}
           onSubmit={submitAdminReport}
+        />
+      ) : null}
+      {masterManagementOpen && isAdmin ? (
+        <MasterManagementModal
+          data={masterData}
+          storeName={storeName}
+          loginEmail={loginEmail}
+          role={role}
+          onSaved={refreshMasterData}
+          onClose={() => setMasterManagementOpen(false)}
         />
       ) : null}
       {isUsageGuideOpen ? (
@@ -2237,6 +2331,587 @@ function DescriptionList({
         </div>
       ))}
     </dl>
+  );
+}
+
+function MasterManagementModal({
+  data,
+  storeName,
+  loginEmail,
+  role,
+  onSaved,
+  onClose,
+}: {
+  data: InitialData;
+  storeName: string;
+  loginEmail: string;
+  role: string;
+  onSaved: () => Promise<void>;
+  onClose: () => void;
+}) {
+  const [activeTab, setActiveTab] = useState<MasterManagementTab>("Android");
+  const [androidMode, setAndroidMode] =
+    useState<AndroidMasterMode>("新規機種追加");
+  const [switchMode, setSwitchMode] =
+    useState<SwitchMasterMode>("新規項目追加");
+  const [repairItemMode, setRepairItemMode] =
+    useState<RepairItemMode>("修理項目追加");
+  const [androidForm, setAndroidForm] = useState(createEmptyAndroidMasterForm);
+  const [switchForm, setSwitchForm] = useState(createEmptySwitchMasterForm);
+  const [repairItemForm, setRepairItemForm] = useState(createEmptyRepairItemForm);
+  const [androidSearch, setAndroidSearch] = useState("");
+  const [switchSearch, setSwitchSearch] = useState("");
+  const [repairItemSearch, setRepairItemSearch] = useState("");
+  const [feedback, setFeedback] = useState<MasterFeedback | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const androidRows = useMemo(
+    () => [...data.priceMaster].sort(compareSortOrder),
+    [data.priceMaster],
+  );
+  const switchRows = useMemo(
+    () => [...data.switchEstimateMaster].sort(compareSortOrder),
+    [data.switchEstimateMaster],
+  );
+  const repairItemRows = useMemo(
+    () => [...data.repairItemMaster].sort(compareSortOrder),
+    [data.repairItemMaster],
+  );
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && !saving) {
+        onClose();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose, saving]);
+
+  async function submitMasterChange() {
+    const validation = validateMasterForm({
+      activeTab,
+      androidMode,
+      switchMode,
+      repairItemMode,
+      androidForm,
+      switchForm,
+      repairItemForm,
+    });
+
+    if (validation) {
+      setFeedback({ tone: "error", message: validation });
+      return;
+    }
+
+    setSaving(true);
+    setFeedback({ tone: "muted", message: "保存中..." });
+
+    try {
+      const { action, payload } = createMasterActionPayload({
+        activeTab,
+        androidMode,
+        switchMode,
+        repairItemMode,
+        androidForm,
+        switchForm,
+        repairItemForm,
+        storeName,
+        loginEmail,
+        role,
+      });
+
+      await postMasterAction(action, payload);
+      await onSaved();
+      setFeedback({ tone: "success", message: "保存しました。選択肢を更新しました。" });
+
+      if (activeTab === "Android" && androidMode === "新規機種追加") {
+        setAndroidForm(createEmptyAndroidMasterForm());
+      }
+      if (activeTab === "Switch" && switchMode === "新規項目追加") {
+        setSwitchForm(createEmptySwitchMasterForm());
+      }
+      if (activeTab === "修理項目" && repairItemMode === "修理項目追加") {
+        setRepairItemForm(createEmptyRepairItemForm());
+      }
+    } catch (error) {
+      console.error(error);
+      setFeedback({
+        tone: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "保存に失敗しました。通信状況を確認して再度お試しください。",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6"
+      onClick={() => {
+        if (!saving) {
+          onClose();
+        }
+      }}
+    >
+      <section
+        className="flex max-h-[92vh] w-[calc(100vw-2rem)] max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex min-w-0 items-start justify-between gap-4 border-b border-slate-200 p-5 sm:p-6">
+          <div className="min-w-0">
+            <h2 className="text-xl font-bold text-slate-950">マスター管理</h2>
+            <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+              Android / Switch / 修理項目のマスターを追加・変更します。
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="min-h-11 shrink-0 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+          >
+            閉じる
+          </button>
+        </div>
+
+        <div className="min-w-0 overflow-y-auto px-5 pb-5 sm:px-6 sm:pb-6">
+          <div className="sticky top-0 z-10 -mx-5 bg-white px-5 py-4 sm:-mx-6 sm:px-6">
+            <div className="grid min-w-0 gap-2 rounded-lg bg-slate-100 p-1 sm:grid-cols-3">
+              {masterManagementTabs.map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => {
+                    setActiveTab(tab);
+                    setFeedback(null);
+                  }}
+                  className={`min-h-11 min-w-0 rounded-md px-3 text-sm font-bold transition ${
+                    activeTab === tab
+                      ? "bg-slate-900 text-white shadow-sm"
+                      : "text-slate-700 hover:bg-white hover:text-slate-950"
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {activeTab === "Android" ? (
+            <AndroidMasterPanel
+              mode={androidMode}
+              form={androidForm}
+              rows={androidRows}
+              search={androidSearch}
+              onModeChange={(mode) => {
+                setAndroidMode(mode);
+                setAndroidForm(createEmptyAndroidMasterForm());
+                setFeedback(null);
+              }}
+              onSearchChange={setAndroidSearch}
+              onSelect={(item) => {
+                setAndroidForm(createAndroidMasterFormFromItem(item));
+                setFeedback(null);
+              }}
+              onFormChange={setAndroidForm}
+            />
+          ) : null}
+
+          {activeTab === "Switch" ? (
+            <SwitchMasterPanel
+              mode={switchMode}
+              form={switchForm}
+              rows={switchRows}
+              search={switchSearch}
+              onModeChange={(mode) => {
+                setSwitchMode(mode);
+                setSwitchForm(createEmptySwitchMasterForm());
+                setFeedback(null);
+              }}
+              onSearchChange={setSwitchSearch}
+              onSelect={(item) => {
+                setSwitchForm(createSwitchMasterFormFromItem(item));
+                setFeedback(null);
+              }}
+              onFormChange={setSwitchForm}
+            />
+          ) : null}
+
+          {activeTab === "修理項目" ? (
+            <RepairItemMasterPanel
+              mode={repairItemMode}
+              form={repairItemForm}
+              rows={repairItemRows}
+              search={repairItemSearch}
+              onModeChange={(mode) => {
+                setRepairItemMode(mode);
+                setRepairItemForm(createEmptyRepairItemForm());
+                setFeedback(null);
+              }}
+              onSearchChange={setRepairItemSearch}
+              onSelect={(item) => {
+                setRepairItemForm(createRepairItemFormFromItem(item));
+                setFeedback(null);
+              }}
+              onFormChange={setRepairItemForm}
+            />
+          ) : null}
+
+          {feedback ? (
+            <p
+              className={`mt-5 rounded-md px-4 py-3 text-sm font-semibold leading-6 ${
+                feedback.tone === "success"
+                  ? "bg-emerald-50 text-emerald-700"
+                  : feedback.tone === "error"
+                    ? "bg-red-50 text-red-700"
+                    : "bg-slate-50 text-slate-500"
+              }`}
+            >
+              {feedback.message}
+            </p>
+          ) : null}
+
+          <div className="mt-5 grid min-w-0 gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={submitMasterChange}
+              disabled={saving}
+              className="min-h-12 w-full min-w-0 rounded-md bg-slate-900 px-4 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+            >
+              {saving ? "保存中..." : "保存"}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={saving}
+              className="min-h-12 w-full min-w-0 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+            >
+              キャンセル
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function AndroidMasterPanel({
+  mode,
+  form,
+  rows,
+  search,
+  onModeChange,
+  onSearchChange,
+  onSelect,
+  onFormChange,
+}: {
+  mode: AndroidMasterMode;
+  form: AndroidMasterForm;
+  rows: AndroidPriceMasterItem[];
+  search: string;
+  onModeChange: (mode: AndroidMasterMode) => void;
+  onSearchChange: (search: string) => void;
+  onSelect: (item: AndroidPriceMasterItem) => void;
+  onFormChange: React.Dispatch<React.SetStateAction<AndroidMasterForm>>;
+}) {
+  const filteredRows = filterMasterRows(rows, search, (item) =>
+    `${item.manufacturer} ${item.modelName} ${item.modelNumber}`,
+  );
+
+  return (
+    <div className="grid min-w-0 gap-5">
+      <SegmentedControl
+        options={androidMasterModes}
+        value={mode}
+        onChange={onModeChange}
+      />
+      {mode === "既存データ変更" ? (
+        <MasterSearchSelect
+          search={search}
+          rows={filteredRows}
+          selectedRowNumber={form.rowNumber}
+          placeholder="メーカー・機種名・型番で検索"
+          getLabel={(item) =>
+            `${item.manufacturer} / ${item.modelName} / ${item.modelNumber || "-"}`
+          }
+          onSearchChange={onSearchChange}
+          onSelect={onSelect}
+        />
+      ) : null}
+      <MasterFormGrid>
+        <MasterTextInput label="並び順" value={form.sortOrder} onChange={(value) => onFormChange((current) => ({ ...current, sortOrder: value }))} />
+        <MasterTextInput label="メーカー" required value={form.manufacturer} onChange={(value) => onFormChange((current) => ({ ...current, manufacturer: value }))} />
+        <MasterTextInput label="機種名" required value={form.modelName} onChange={(value) => onFormChange((current) => ({ ...current, modelName: value }))} />
+        <MasterTextInput label="型番" value={form.modelNumber} onChange={(value) => onFormChange((current) => ({ ...current, modelNumber: value }))} />
+        <MasterTextInput label="画面修理価格" value={form.screenPrice} onChange={(value) => onFormChange((current) => ({ ...current, screenPrice: value }))} />
+        <MasterSelectInput label="画面修理対応区分" value={form.screenStatus} options={supportStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, screenStatus: value }))} />
+        <MasterSelectInput label="バッテリー対応区分" value={form.batteryStatus} options={supportStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, batteryStatus: value }))} />
+        <MasterSelectInput label="充電口対応区分" value={form.chargePortStatus} options={supportStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, chargePortStatus: value }))} />
+        <MasterSelectInput label="カメラレンズ対応区分" value={form.cameraLensStatus} options={supportStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, cameraLensStatus: value }))} />
+        <MasterSelectInput label="スリープボタン対応区分" value={form.sleepButtonStatus} options={supportStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, sleepButtonStatus: value }))} />
+        <MasterSelectInput label="音量ボタン対応区分" value={form.volumeButtonStatus} options={supportStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, volumeButtonStatus: value }))} />
+        <MasterSelectInput label="受付状態" required value={form.receptionStatus} options={receptionStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, receptionStatus: value }))} />
+        <MasterTextArea label="備考" value={form.note} onChange={(value) => onFormChange((current) => ({ ...current, note: value }))} />
+      </MasterFormGrid>
+    </div>
+  );
+}
+
+function SwitchMasterPanel({
+  mode,
+  form,
+  rows,
+  search,
+  onModeChange,
+  onSearchChange,
+  onSelect,
+  onFormChange,
+}: {
+  mode: SwitchMasterMode;
+  form: SwitchMasterForm;
+  rows: SwitchEstimateMasterItem[];
+  search: string;
+  onModeChange: (mode: SwitchMasterMode) => void;
+  onSearchChange: (search: string) => void;
+  onSelect: (item: SwitchEstimateMasterItem) => void;
+  onFormChange: React.Dispatch<React.SetStateAction<SwitchMasterForm>>;
+}) {
+  const filteredRows = filterMasterRows(rows, search, (item) =>
+    `${item.modelName} ${item.symptom} ${item.estimatedRepairType}`,
+  );
+
+  return (
+    <div className="grid min-w-0 gap-5">
+      <SegmentedControl
+        options={switchMasterModes}
+        value={mode}
+        onChange={onModeChange}
+      />
+      {mode === "既存データ変更" ? (
+        <MasterSearchSelect
+          search={search}
+          rows={filteredRows}
+          selectedRowNumber={form.rowNumber}
+          placeholder="機種名・症状・想定修理内容で検索"
+          getLabel={(item) =>
+            `${item.modelName} / ${item.symptom} / ${item.estimatedRepairType}`
+          }
+          onSearchChange={onSearchChange}
+          onSelect={onSelect}
+        />
+      ) : null}
+      <MasterFormGrid>
+        <MasterTextInput label="並び順" value={form.sortOrder} onChange={(value) => onFormChange((current) => ({ ...current, sortOrder: value }))} />
+        <MasterTextInput label="機種名" required value={form.modelName} onChange={(value) => onFormChange((current) => ({ ...current, modelName: value }))} />
+        <MasterTextInput label="型番" value={form.modelNumber} onChange={(value) => onFormChange((current) => ({ ...current, modelNumber: value }))} />
+        <MasterTextInput label="症状" required value={form.symptom} onChange={(value) => onFormChange((current) => ({ ...current, symptom: value }))} />
+        <MasterTextInput label="想定修理内容" required value={form.estimatedRepairType} onChange={(value) => onFormChange((current) => ({ ...current, estimatedRepairType: value }))} />
+        <MasterTextInput label="修理費用" required value={form.repairPrice} onChange={(value) => onFormChange((current) => ({ ...current, repairPrice: value }))} />
+        <MasterSelectInput label="対応区分" required value={form.repairStatus} options={supportStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, repairStatus: value }))} />
+        <MasterSelectInput label="受付状態" required value={form.receptionStatus} options={receptionStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, receptionStatus: value }))} />
+        <MasterTextArea label="案内文補足" value={form.note} onChange={(value) => onFormChange((current) => ({ ...current, note: value }))} />
+      </MasterFormGrid>
+    </div>
+  );
+}
+
+function RepairItemMasterPanel({
+  mode,
+  form,
+  rows,
+  search,
+  onModeChange,
+  onSearchChange,
+  onSelect,
+  onFormChange,
+}: {
+  mode: RepairItemMode;
+  form: RepairItemForm;
+  rows: RepairItemMasterItem[];
+  search: string;
+  onModeChange: (mode: RepairItemMode) => void;
+  onSearchChange: (search: string) => void;
+  onSelect: (item: RepairItemMasterItem) => void;
+  onFormChange: React.Dispatch<React.SetStateAction<RepairItemForm>>;
+}) {
+  const filteredRows = filterMasterRows(rows, search, (item) =>
+    `${item.category} ${item.repairItemName} ${item.displayName} ${item.targetModelCategory}`,
+  );
+
+  return (
+    <div className="grid min-w-0 gap-5">
+      <SegmentedControl
+        options={repairItemModes}
+        value={mode}
+        onChange={onModeChange}
+      />
+      {mode === "修理項目変更" ? (
+        <MasterSearchSelect
+          search={search}
+          rows={filteredRows}
+          selectedRowNumber={form.rowNumber}
+          placeholder="カテゴリ・修理項目名・表示名・対象機種カテゴリで検索"
+          getLabel={(item) =>
+            `${item.category} / ${item.repairItemName} / ${
+              item.displayName || "-"
+            } / ${item.targetModelCategory || "-"}`
+          }
+          onSearchChange={onSearchChange}
+          onSelect={onSelect}
+        />
+      ) : null}
+      <MasterFormGrid>
+        <MasterTextInput label="並び順" value={form.sortOrder} onChange={(value) => onFormChange((current) => ({ ...current, sortOrder: value }))} />
+        <MasterSelectInput label="カテゴリ" required value={form.category} options={categories} onChange={(value) => onFormChange((current) => ({ ...current, category: value as InquiryCategory }))} />
+        <MasterTextInput label="修理項目名" required value={form.repairItemName} onChange={(value) => onFormChange((current) => ({ ...current, repairItemName: value }))} />
+        <MasterTextInput label="表示名" value={form.displayName} onChange={(value) => onFormChange((current) => ({ ...current, displayName: value }))} />
+        <MasterSelectInput label="価格種別" required value={form.priceType} options={repairItemPriceTypes} onChange={(value) => onFormChange((current) => ({ ...current, priceType: value }))} />
+        <MasterTextInput label="標準価格" value={form.standardPrice} onChange={(value) => onFormChange((current) => ({ ...current, standardPrice: value }))} />
+        <MasterSelectInput label="対応区分" required value={form.repairStatus} options={supportStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, repairStatus: value }))} />
+        <MasterSelectInput label="対象機種カテゴリ" value={form.targetModelCategory} options={repairItemTargetCategories} onChange={(value) => onFormChange((current) => ({ ...current, targetModelCategory: value }))} />
+        <MasterSelectInput label="受付状態" required value={form.receptionStatus} options={receptionStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, receptionStatus: value }))} />
+        <MasterTextArea label="備考" value={form.note} onChange={(value) => onFormChange((current) => ({ ...current, note: value }))} />
+      </MasterFormGrid>
+    </div>
+  );
+}
+
+function MasterFormGrid({ children }: { children: React.ReactNode }) {
+  return <div className="grid min-w-0 gap-4 md:grid-cols-2">{children}</div>;
+}
+
+function MasterTextInput({
+  label,
+  required = false,
+  value,
+  onChange,
+}: {
+  label: string;
+  required?: boolean;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <Field label={label} requirement={required ? "必須" : "任意"}>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+      />
+    </Field>
+  );
+}
+
+function MasterTextArea({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="md:col-span-2">
+      <Field label={label} requirement="任意">
+        <textarea
+          value={value}
+          rows={3}
+          onChange={(event) => onChange(event.target.value)}
+          className="min-h-24 w-full max-w-full min-w-0 resize-y rounded-lg border border-slate-300 bg-white px-4 py-3 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+        />
+      </Field>
+    </div>
+  );
+}
+
+function MasterSelectInput({
+  label,
+  required = false,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  required?: boolean;
+  value: string;
+  options: string[];
+  onChange: (value: string) => void;
+}) {
+  const optionValues = value && !options.includes(value) ? [value, ...options] : options;
+
+  return (
+    <Field label={label} requirement={required ? "必須" : "任意"}>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+      >
+        <option value="">未選択</option>
+        {optionValues.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
+function MasterSearchSelect<T extends { rowNumber: number }>({
+  search,
+  rows,
+  selectedRowNumber,
+  placeholder,
+  getLabel,
+  onSearchChange,
+  onSelect,
+}: {
+  search: string;
+  rows: T[];
+  selectedRowNumber?: number;
+  placeholder: string;
+  getLabel: (item: T) => string;
+  onSearchChange: (search: string) => void;
+  onSelect: (item: T) => void;
+}) {
+  return (
+    <section className="grid min-w-0 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+      <Field label="対象データ検索" requirement="必須">
+        <input
+          value={search}
+          placeholder={placeholder}
+          onChange={(event) => onSearchChange(event.target.value)}
+          className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+        />
+      </Field>
+      <select
+        value={selectedRowNumber ?? ""}
+        onChange={(event) => {
+          const rowNumber = Number(event.target.value);
+          const item = rows.find((row) => row.rowNumber === rowNumber);
+          if (item) {
+            onSelect(item);
+          }
+        }}
+        className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+      >
+        <option value="">対象を選択</option>
+        {rows.slice(0, 200).map((item) => (
+          <option key={item.rowNumber} value={item.rowNumber}>
+            {getLabel(item)}
+          </option>
+        ))}
+      </select>
+      <p className="text-xs font-semibold leading-5 text-slate-500">
+        表示件数: {Math.min(rows.length, 200)} / {rows.length}
+      </p>
+    </section>
   );
 }
 
@@ -3587,6 +4262,254 @@ function createAdminReportEstimateSummary(estimate: ConfirmedEstimate) {
     `修理内容: ${estimate.quote.repairType}`,
     `見積金額: ${estimate.estimateText}`,
   ].join("\n");
+}
+
+function createEmptyAndroidMasterForm(): AndroidMasterForm {
+  return {
+    sortOrder: "",
+    manufacturer: "",
+    modelName: "",
+    modelNumber: "",
+    screenPrice: "",
+    screenStatus: "",
+    batteryStatus: "",
+    chargePortStatus: "",
+    cameraLensStatus: "",
+    sleepButtonStatus: "",
+    volumeButtonStatus: "",
+    note: "",
+    receptionStatus: "受付可",
+  };
+}
+
+function createEmptySwitchMasterForm(): SwitchMasterForm {
+  return {
+    sortOrder: "",
+    modelName: "",
+    modelNumber: "",
+    symptom: "",
+    estimatedRepairType: "",
+    repairPrice: "",
+    repairStatus: "店舗対応可",
+    note: "",
+    receptionStatus: "受付可",
+  };
+}
+
+function createEmptyRepairItemForm(): RepairItemForm {
+  return {
+    sortOrder: "",
+    category: "Android",
+    repairItemName: "",
+    displayName: "",
+    priceType: "固定価格",
+    standardPrice: "",
+    repairStatus: "店舗対応可",
+    targetModelCategory: "",
+    note: "",
+    receptionStatus: "受付可",
+  };
+}
+
+function createAndroidMasterFormFromItem(
+  item: AndroidPriceMasterItem,
+): AndroidMasterForm {
+  return {
+    rowNumber: item.rowNumber,
+    sortOrder: stringValue(item.sortOrder),
+    manufacturer: item.manufacturer,
+    modelName: item.modelName,
+    modelNumber: item.modelNumber,
+    screenPrice: stringValue(item.screenPrice),
+    screenStatus: item.screenStatus,
+    batteryStatus: item.batteryStatus,
+    chargePortStatus: item.chargePortStatus,
+    cameraLensStatus: item.cameraLensStatus,
+    sleepButtonStatus: item.sleepButtonStatus,
+    volumeButtonStatus: item.volumeButtonStatus,
+    note: item.note,
+    receptionStatus: item.receptionStatus,
+  };
+}
+
+function createSwitchMasterFormFromItem(
+  item: SwitchEstimateMasterItem,
+): SwitchMasterForm {
+  return {
+    rowNumber: item.rowNumber,
+    sortOrder: stringValue(item.sortOrder),
+    modelName: item.modelName,
+    modelNumber: item.modelNumber,
+    symptom: item.symptom,
+    estimatedRepairType: item.estimatedRepairType,
+    repairPrice: stringValue(item.repairPrice),
+    repairStatus: item.repairStatus,
+    note: item.note,
+    receptionStatus: item.receptionStatus,
+  };
+}
+
+function createRepairItemFormFromItem(item: RepairItemMasterItem): RepairItemForm {
+  return {
+    rowNumber: item.rowNumber,
+    sortOrder: stringValue(item.sortOrder),
+    category: item.category === "Switch" ? "Switch" : "Android",
+    repairItemName: item.repairItemName,
+    displayName: item.displayName,
+    priceType: item.priceType,
+    standardPrice: stringValue(item.standardPrice),
+    repairStatus: item.repairStatus,
+    targetModelCategory: item.targetModelCategory,
+    note: item.note,
+    receptionStatus: item.receptionStatus,
+  };
+}
+
+function filterMasterRows<T>(
+  rows: T[],
+  search: string,
+  getSearchText: (item: T) => string,
+) {
+  const query = normalizeSearchText(search);
+
+  if (!query) {
+    return rows;
+  }
+
+  return rows.filter((item) => normalizeSearchText(getSearchText(item)).includes(query));
+}
+
+function validateMasterForm({
+  activeTab,
+  androidMode,
+  switchMode,
+  repairItemMode,
+  androidForm,
+  switchForm,
+  repairItemForm,
+}: {
+  activeTab: MasterManagementTab;
+  androidMode: AndroidMasterMode;
+  switchMode: SwitchMasterMode;
+  repairItemMode: RepairItemMode;
+  androidForm: AndroidMasterForm;
+  switchForm: SwitchMasterForm;
+  repairItemForm: RepairItemForm;
+}) {
+  if (activeTab === "Android") {
+    if (androidMode === "既存データ変更" && !androidForm.rowNumber) {
+      return "変更対象を選択してください。";
+    }
+
+    return validateRequiredMasterFields(androidForm, [
+      ["manufacturer", "メーカー"],
+      ["modelName", "機種名"],
+      ["receptionStatus", "受付状態"],
+    ]);
+  }
+
+  if (activeTab === "Switch") {
+    if (switchMode === "既存データ変更" && !switchForm.rowNumber) {
+      return "変更対象を選択してください。";
+    }
+
+    return validateRequiredMasterFields(switchForm, [
+      ["modelName", "機種名"],
+      ["symptom", "症状"],
+      ["estimatedRepairType", "想定修理内容"],
+      ["repairPrice", "修理費用"],
+      ["repairStatus", "対応区分"],
+      ["receptionStatus", "受付状態"],
+    ]);
+  }
+
+  if (repairItemMode === "修理項目変更" && !repairItemForm.rowNumber) {
+    return "変更対象を選択してください。";
+  }
+
+  return validateRequiredMasterFields(repairItemForm, [
+    ["category", "カテゴリ"],
+    ["repairItemName", "修理項目名"],
+    ["priceType", "価格種別"],
+    ["repairStatus", "対応区分"],
+    ["receptionStatus", "受付状態"],
+  ]);
+}
+
+function validateRequiredMasterFields<T extends Record<string, unknown>>(
+  form: T,
+  fields: [keyof T, string][],
+) {
+  const missing = fields
+    .filter(([key]) => !stringValue(form[key]))
+    .map(([, label]) => label);
+
+  return missing.length > 0 ? `${missing.join("、")}を入力してください。` : "";
+}
+
+function createMasterActionPayload({
+  activeTab,
+  androidMode,
+  switchMode,
+  repairItemMode,
+  androidForm,
+  switchForm,
+  repairItemForm,
+  storeName,
+  loginEmail,
+  role,
+}: {
+  activeTab: MasterManagementTab;
+  androidMode: AndroidMasterMode;
+  switchMode: SwitchMasterMode;
+  repairItemMode: RepairItemMode;
+  androidForm: AndroidMasterForm;
+  switchForm: SwitchMasterForm;
+  repairItemForm: RepairItemForm;
+  storeName: string;
+  loginEmail: string;
+  role: string;
+}) {
+  const authPayload = { storeName, loginEmail, role };
+
+  if (activeTab === "Android") {
+    return {
+      action:
+        androidMode === "新規機種追加"
+          ? "addAndroidMasterItem"
+          : "updateAndroidMasterItem",
+      payload: {
+        ...authPayload,
+        item: androidForm,
+      },
+    };
+  }
+
+  if (activeTab === "Switch") {
+    return {
+      action:
+        switchMode === "新規項目追加"
+          ? "addSwitchMasterItem"
+          : "updateSwitchMasterItem",
+      payload: {
+        ...authPayload,
+        item: switchForm,
+      },
+    };
+  }
+
+  return {
+    action:
+      repairItemMode === "修理項目追加" ? "addRepairItem" : "updateRepairItem",
+    payload: {
+      ...authPayload,
+      item: {
+        ...repairItemForm,
+        displayName:
+          repairItemForm.displayName.trim() || repairItemForm.repairItemName.trim(),
+      },
+    },
+  };
 }
 
 function estimateInputMatches(current: FormState, confirmed: FormState) {
@@ -5250,6 +6173,43 @@ function removeStoredAuthUser() {
   window.localStorage.removeItem(AUTH_STORAGE_KEY);
 }
 
+async function fetchInitialData(): Promise<InitialData> {
+  const apiUrl = process.env.NEXT_PUBLIC_APPS_SCRIPT_API_URL;
+
+  if (!apiUrl) {
+    throw new Error("NEXT_PUBLIC_APPS_SCRIPT_API_URL is not set.");
+  }
+
+  const response = await fetch(`${apiUrl}?action=getInitialData`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Initial data fetch failed with status ${response.status}.`);
+  }
+
+  const result = (await response.json()) as {
+    success?: boolean;
+    ok?: boolean;
+    data?: Partial<InitialData>;
+    message?: string;
+    error?: string;
+  };
+
+  if (result.success === false || result.ok === false) {
+    throw new Error(result.message || result.error || "Initial data fetch failed.");
+  }
+
+  return {
+    priceMaster: result.data?.priceMaster ?? [],
+    switchEstimateMaster: result.data?.switchEstimateMaster ?? [],
+    repairItemMaster: result.data?.repairItemMaster ?? [],
+    staffList: result.data?.staffList ?? [],
+    optionMaster: result.data?.optionMaster ?? [],
+    users: result.data?.users ?? [],
+  };
+}
+
 async function fetchUserMaster() {
   const apiUrl = process.env.NEXT_PUBLIC_APPS_SCRIPT_API_URL;
 
@@ -5328,6 +6288,54 @@ async function saveInquiry({
 
   if (!response.ok) {
     throw new Error(`Inquiry save failed with status ${response.status}.`);
+  }
+}
+
+async function postMasterAction(action: string, payload: unknown) {
+  const apiUrl = process.env.NEXT_PUBLIC_APPS_SCRIPT_API_URL;
+
+  if (!apiUrl) {
+    throw new Error("NEXT_PUBLIC_APPS_SCRIPT_API_URL is not set.");
+  }
+
+  const response = await fetch(apiUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "text/plain;charset=utf-8",
+    },
+    body: JSON.stringify({
+      action,
+      payload,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Master save failed with status ${response.status}.`);
+  }
+
+  const text = await response.text();
+
+  if (!text) {
+    return;
+  }
+
+  try {
+    const result = JSON.parse(text) as {
+      success?: boolean;
+      ok?: boolean;
+      message?: string;
+      error?: string;
+    };
+
+    if (result.success === false || result.ok === false) {
+      throw new Error(result.message || result.error || "Master save failed.");
+    }
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return;
+    }
+
+    throw error;
   }
 }
 

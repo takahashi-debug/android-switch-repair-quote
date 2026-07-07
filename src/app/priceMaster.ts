@@ -30,6 +30,7 @@ export async function getInitialDataFromApi(): Promise<InitialData> {
   return {
     priceMaster: result.data?.priceMaster ?? [],
     switchEstimateMaster: result.data?.switchEstimateMaster ?? [],
+    repairItemMaster: result.data?.repairItemMaster ?? [],
     staffList: result.data?.staffList ?? [],
     optionMaster: result.data?.optionMaster ?? [],
     users: result.data?.users ?? [],
