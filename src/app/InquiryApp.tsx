@@ -60,10 +60,15 @@ type AndroidMasterForm = {
   modelNumber: string;
   screenPrice: string;
   screenStatus: string;
+  batteryManualPrice: string;
   batteryStatus: string;
+  chargePortManualPrice: string;
   chargePortStatus: string;
+  cameraLensManualPrice: string;
   cameraLensStatus: string;
+  sleepButtonManualPrice: string;
   sleepButtonStatus: string;
+  volumeButtonManualPrice: string;
   volumeButtonStatus: string;
   note: string;
   receptionStatus: string;
@@ -222,6 +227,9 @@ const androidMasterModes: AndroidMasterMode[] = ["新規機種追加", "既存�
 const switchMasterModes: SwitchMasterMode[] = ["新規項目追加", "既存データ変更"];
 const repairItemModes: RepairItemMode[] = ["修理項目追加", "修理項目変更"];
 const supportStatusOptions = ["店舗対応可", "要確認", "委託対応", "非対応"];
+const manualPriceStatusOption = "料金を手動設定";
+const manualPriceStoredStatus = "料金手動設定";
+const manualPriceStoredPrefix = "料金手動設定:";
 const receptionStatusOptions = ["受付可", "要確認", "受付停止"];
 const repairItemPriceTypes = ["固定価格", "機種別価格", "要相談", "非対応"];
 const repairItemTargetCategories = [
@@ -461,14 +469,25 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
 
   const androidCandidates = useMemo(() => {
     const query = normalizeSearchText(modelSearch);
+    const modelQuery = normalizeModelName(modelSearch);
     const rows = androidRows.filter((item) => {
       const matchesMaker =
         !form.maker || androidMakerMatches(form.maker, item.manufacturer);
       const target = normalizeSearchText(
         `${item.manufacturer} ${item.modelName} ${item.modelNumber}`,
       );
+      const normalizedTarget = [
+        normalizeModelName(item.manufacturer),
+        normalizeModelName(item.modelName),
+        normalizeModelName(item.modelNumber),
+      ].join(" ");
 
-      return matchesMaker && (!query || target.includes(query));
+      return (
+        matchesMaker &&
+        ((!query && !modelQuery) ||
+          target.includes(query) ||
+          normalizedTarget.includes(modelQuery))
+      );
     });
 
     return uniqueModelCandidates(rows);
@@ -2369,6 +2388,10 @@ function MasterManagementModal({
     () => [...data.priceMaster].sort(compareSortOrder),
     [data.priceMaster],
   );
+  const androidManufacturers = useMemo(
+    () => uniqueValues(androidRows.map((item) => item.manufacturer)),
+    [androidRows],
+  );
   const switchRows = useMemo(
     () => [...data.switchEstimateMaster].sort(compareSortOrder),
     [data.switchEstimateMaster],
@@ -2403,6 +2426,27 @@ function MasterManagementModal({
     if (validation) {
       setFeedback({ tone: "error", message: validation });
       return;
+    }
+
+    if (activeTab === "Android") {
+      const duplicateCandidates = findAndroidDuplicateCandidates(
+        androidRows,
+        androidForm,
+      );
+
+      if (
+        duplicateCandidates.length > 0 &&
+        typeof window !== "undefined" &&
+        !window.confirm(
+          `表記が近い既存データが${duplicateCandidates.length}件あります。このまま保存しますか？`,
+        )
+      ) {
+        setFeedback({
+          tone: "error",
+          message: "重複候補を確認してから保存してください。",
+        });
+        return;
+      }
     }
 
     setSaving(true);
@@ -2507,6 +2551,7 @@ function MasterManagementModal({
               mode={androidMode}
               form={androidForm}
               rows={androidRows}
+              manufacturers={androidManufacturers}
               search={androidSearch}
               onModeChange={(mode) => {
                 setAndroidMode(mode);
@@ -2604,6 +2649,7 @@ function AndroidMasterPanel({
   mode,
   form,
   rows,
+  manufacturers,
   search,
   onModeChange,
   onSearchChange,
@@ -2613,15 +2659,15 @@ function AndroidMasterPanel({
   mode: AndroidMasterMode;
   form: AndroidMasterForm;
   rows: AndroidPriceMasterItem[];
+  manufacturers: string[];
   search: string;
   onModeChange: (mode: AndroidMasterMode) => void;
   onSearchChange: (search: string) => void;
   onSelect: (item: AndroidPriceMasterItem) => void;
   onFormChange: React.Dispatch<React.SetStateAction<AndroidMasterForm>>;
 }) {
-  const filteredRows = filterMasterRows(rows, search, (item) =>
-    `${item.manufacturer} ${item.modelName} ${item.modelNumber}`,
-  );
+  const filteredRows = filterAndroidMasterRows(rows, search);
+  const duplicateCandidates = findAndroidDuplicateCandidates(rows, form);
 
   return (
     <div className="grid min-w-0 gap-5">
@@ -2645,19 +2691,73 @@ function AndroidMasterPanel({
       ) : null}
       <MasterFormGrid>
         <MasterTextInput label="並び順" value={form.sortOrder} onChange={(value) => onFormChange((current) => ({ ...current, sortOrder: value }))} />
-        <MasterTextInput label="メーカー" required value={form.manufacturer} onChange={(value) => onFormChange((current) => ({ ...current, manufacturer: value }))} />
+        <AndroidManufacturerInput
+          value={form.manufacturer}
+          manufacturers={manufacturers}
+          onChange={(value) =>
+            onFormChange((current) => ({ ...current, manufacturer: value }))
+          }
+        />
         <MasterTextInput label="機種名" required value={form.modelName} onChange={(value) => onFormChange((current) => ({ ...current, modelName: value }))} />
         <MasterTextInput label="型番" value={form.modelNumber} onChange={(value) => onFormChange((current) => ({ ...current, modelNumber: value }))} />
         <MasterTextInput label="画面修理価格" value={form.screenPrice} onChange={(value) => onFormChange((current) => ({ ...current, screenPrice: value }))} />
-        <MasterSelectInput label="画面修理対応区分" value={form.screenStatus} options={supportStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, screenStatus: value }))} />
-        <MasterSelectInput label="バッテリー対応区分" value={form.batteryStatus} options={supportStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, batteryStatus: value }))} />
-        <MasterSelectInput label="充電口対応区分" value={form.chargePortStatus} options={supportStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, chargePortStatus: value }))} />
-        <MasterSelectInput label="カメラレンズ対応区分" value={form.cameraLensStatus} options={supportStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, cameraLensStatus: value }))} />
-        <MasterSelectInput label="スリープボタン対応区分" value={form.sleepButtonStatus} options={supportStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, sleepButtonStatus: value }))} />
-        <MasterSelectInput label="音量ボタン対応区分" value={form.volumeButtonStatus} options={supportStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, volumeButtonStatus: value }))} />
+        <AndroidRepairStatusInput
+          label="画面修理対応区分"
+          status={form.screenStatus}
+          manualPrice={form.screenPrice}
+          onStatusChange={(value) => onFormChange((current) => ({ ...current, screenStatus: value }))}
+          onManualPriceChange={(value) => onFormChange((current) => ({ ...current, screenPrice: value }))}
+        />
+        <AndroidRepairStatusInput
+          label="バッテリー対応区分"
+          status={form.batteryStatus}
+          manualPrice={form.batteryManualPrice}
+          onStatusChange={(value) => onFormChange((current) => ({ ...current, batteryStatus: value }))}
+          onManualPriceChange={(value) => onFormChange((current) => ({ ...current, batteryManualPrice: value }))}
+        />
+        <AndroidRepairStatusInput
+          label="充電口対応区分"
+          status={form.chargePortStatus}
+          manualPrice={form.chargePortManualPrice}
+          onStatusChange={(value) => onFormChange((current) => ({ ...current, chargePortStatus: value }))}
+          onManualPriceChange={(value) => onFormChange((current) => ({ ...current, chargePortManualPrice: value }))}
+        />
+        <AndroidRepairStatusInput
+          label="カメラレンズ対応区分"
+          status={form.cameraLensStatus}
+          manualPrice={form.cameraLensManualPrice}
+          onStatusChange={(value) => onFormChange((current) => ({ ...current, cameraLensStatus: value }))}
+          onManualPriceChange={(value) => onFormChange((current) => ({ ...current, cameraLensManualPrice: value }))}
+        />
+        <AndroidRepairStatusInput
+          label="スリープボタン対応区分"
+          status={form.sleepButtonStatus}
+          manualPrice={form.sleepButtonManualPrice}
+          onStatusChange={(value) => onFormChange((current) => ({ ...current, sleepButtonStatus: value }))}
+          onManualPriceChange={(value) => onFormChange((current) => ({ ...current, sleepButtonManualPrice: value }))}
+        />
+        <AndroidRepairStatusInput
+          label="音量ボタン対応区分"
+          status={form.volumeButtonStatus}
+          manualPrice={form.volumeButtonManualPrice}
+          onStatusChange={(value) => onFormChange((current) => ({ ...current, volumeButtonStatus: value }))}
+          onManualPriceChange={(value) => onFormChange((current) => ({ ...current, volumeButtonManualPrice: value }))}
+        />
         <MasterSelectInput label="受付状態" required value={form.receptionStatus} options={receptionStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, receptionStatus: value }))} />
         <MasterTextArea label="備考" value={form.note} onChange={(value) => onFormChange((current) => ({ ...current, note: value }))} />
       </MasterFormGrid>
+      {duplicateCandidates.length > 0 ? (
+        <section className="grid min-w-0 gap-2 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+          <p className="font-bold">表記が近い既存データがあります。</p>
+          <ul className="grid min-w-0 gap-1">
+            {duplicateCandidates.slice(0, 5).map((item) => (
+              <li key={item.rowNumber} className="min-w-0 break-words">
+                {item.manufacturer} / {item.modelName} / {item.modelNumber || "-"}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </div>
   );
 }
@@ -2860,6 +2960,86 @@ function MasterSelectInput({
         ))}
       </select>
     </Field>
+  );
+}
+
+function AndroidManufacturerInput({
+  value,
+  manufacturers,
+  onChange,
+}: {
+  value: string;
+  manufacturers: string[];
+  onChange: (value: string) => void;
+}) {
+  const isKnownManufacturer = value && manufacturers.includes(value);
+  const selectValue = isKnownManufacturer ? value : value ? "__other__" : "";
+
+  return (
+    <div className="grid min-w-0 gap-3">
+      <Field label="メーカー" requirement="必須">
+        <select
+          value={selectValue}
+          onChange={(event) => {
+            const nextValue = event.target.value;
+            onChange(nextValue === "__other__" ? "" : nextValue);
+          }}
+          className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+        >
+          <option value="">未選択</option>
+          {manufacturers.map((manufacturer) => (
+            <option key={manufacturer} value={manufacturer}>
+              {manufacturer}
+            </option>
+          ))}
+          <option value="__other__">その他（手入力）</option>
+        </select>
+      </Field>
+      {selectValue === "__other__" ? (
+        <Field label="新規メーカー名" requirement="必須">
+          <input
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+          />
+        </Field>
+      ) : null}
+    </div>
+  );
+}
+
+function AndroidRepairStatusInput({
+  label,
+  status,
+  manualPrice,
+  onStatusChange,
+  onManualPriceChange,
+}: {
+  label: string;
+  status: string;
+  manualPrice: string;
+  onStatusChange: (value: string) => void;
+  onManualPriceChange: (value: string) => void;
+}) {
+  return (
+    <div className="grid min-w-0 gap-3">
+      <MasterSelectInput
+        label={label}
+        value={status}
+        options={[...supportStatusOptions, manualPriceStatusOption]}
+        onChange={onStatusChange}
+      />
+      {status === manualPriceStatusOption ? (
+        <Field label="手動設定金額" requirement="必須">
+          <input
+            inputMode="numeric"
+            value={manualPrice}
+            onChange={(event) => onManualPriceChange(event.target.value)}
+            className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+          />
+        </Field>
+      ) : null}
+    </div>
   );
 }
 
@@ -4272,10 +4452,15 @@ function createEmptyAndroidMasterForm(): AndroidMasterForm {
     modelNumber: "",
     screenPrice: "",
     screenStatus: "",
+    batteryManualPrice: "",
     batteryStatus: "",
+    chargePortManualPrice: "",
     chargePortStatus: "",
+    cameraLensManualPrice: "",
     cameraLensStatus: "",
+    sleepButtonManualPrice: "",
     sleepButtonStatus: "",
+    volumeButtonManualPrice: "",
     volumeButtonStatus: "",
     note: "",
     receptionStatus: "受付可",
@@ -4314,19 +4499,31 @@ function createEmptyRepairItemForm(): RepairItemForm {
 function createAndroidMasterFormFromItem(
   item: AndroidPriceMasterItem,
 ): AndroidMasterForm {
+  const screenStatus = parseManualPriceStatus(item.screenStatus);
+  const batteryStatus = parseManualPriceStatus(item.batteryStatus);
+  const chargePortStatus = parseManualPriceStatus(item.chargePortStatus);
+  const cameraLensStatus = parseManualPriceStatus(item.cameraLensStatus);
+  const sleepButtonStatus = parseManualPriceStatus(item.sleepButtonStatus);
+  const volumeButtonStatus = parseManualPriceStatus(item.volumeButtonStatus);
+
   return {
     rowNumber: item.rowNumber,
     sortOrder: stringValue(item.sortOrder),
     manufacturer: item.manufacturer,
     modelName: item.modelName,
     modelNumber: item.modelNumber,
-    screenPrice: stringValue(item.screenPrice),
-    screenStatus: item.screenStatus,
-    batteryStatus: item.batteryStatus,
-    chargePortStatus: item.chargePortStatus,
-    cameraLensStatus: item.cameraLensStatus,
-    sleepButtonStatus: item.sleepButtonStatus,
-    volumeButtonStatus: item.volumeButtonStatus,
+    screenPrice: stringValue(item.screenPrice) || screenStatus.manualPrice,
+    screenStatus: screenStatus.status,
+    batteryManualPrice: batteryStatus.manualPrice,
+    batteryStatus: batteryStatus.status,
+    chargePortManualPrice: chargePortStatus.manualPrice,
+    chargePortStatus: chargePortStatus.status,
+    cameraLensManualPrice: cameraLensStatus.manualPrice,
+    cameraLensStatus: cameraLensStatus.status,
+    sleepButtonManualPrice: sleepButtonStatus.manualPrice,
+    sleepButtonStatus: sleepButtonStatus.status,
+    volumeButtonManualPrice: volumeButtonStatus.manualPrice,
+    volumeButtonStatus: volumeButtonStatus.status,
     note: item.note,
     receptionStatus: item.receptionStatus,
   };
@@ -4379,6 +4576,162 @@ function filterMasterRows<T>(
   return rows.filter((item) => normalizeSearchText(getSearchText(item)).includes(query));
 }
 
+function filterAndroidMasterRows(rows: AndroidPriceMasterItem[], search: string) {
+  const query = normalizeSearchText(search);
+  const modelQuery = normalizeModelName(search);
+
+  if (!query && !modelQuery) {
+    return rows;
+  }
+
+  return rows.filter((item) => {
+    const searchText = normalizeSearchText(
+      `${item.manufacturer} ${item.modelName} ${item.modelNumber}`,
+    );
+    const normalizedModelText = [
+      normalizeModelName(item.manufacturer),
+      normalizeModelName(item.modelName),
+      normalizeModelName(item.modelNumber),
+    ].join(" ");
+
+    return (
+      (query && searchText.includes(query)) ||
+      (modelQuery && normalizedModelText.includes(modelQuery))
+    );
+  });
+}
+
+function parseManualPriceStatus(value: string) {
+  const normalized = stringValue(value).normalize("NFKC").replace(/,/g, "");
+
+  if (normalized === manualPriceStatusOption || normalized === manualPriceStoredStatus) {
+    return { status: manualPriceStatusOption, manualPrice: "" };
+  }
+
+  if (!normalized.startsWith(manualPriceStoredPrefix)) {
+    return { status: stringValue(value), manualPrice: "" };
+  }
+
+  return {
+    status: manualPriceStatusOption,
+    manualPrice: normalized.slice(manualPriceStoredPrefix.length).trim(),
+  };
+}
+
+function validateAndroidManualPrices(form: AndroidMasterForm) {
+  const missingLabels = [
+    form.screenStatus === manualPriceStatusOption &&
+    !normalizeManualPrice(form.screenPrice)
+      ? "画面修理"
+      : "",
+    form.batteryStatus === manualPriceStatusOption &&
+    !normalizeManualPrice(form.batteryManualPrice)
+      ? "バッテリー"
+      : "",
+    form.chargePortStatus === manualPriceStatusOption &&
+    !normalizeManualPrice(form.chargePortManualPrice)
+      ? "充電口"
+      : "",
+    form.cameraLensStatus === manualPriceStatusOption &&
+    !normalizeManualPrice(form.cameraLensManualPrice)
+      ? "カメラレンズ"
+      : "",
+    form.sleepButtonStatus === manualPriceStatusOption &&
+    !normalizeManualPrice(form.sleepButtonManualPrice)
+      ? "スリープボタン"
+      : "",
+    form.volumeButtonStatus === manualPriceStatusOption &&
+    !normalizeManualPrice(form.volumeButtonManualPrice)
+      ? "音量ボタン"
+      : "",
+  ].filter(Boolean);
+
+  return missingLabels.length > 0
+    ? `${missingLabels.join("、")}の手動設定金額を半角数字で入力してください。`
+    : "";
+}
+
+function createAndroidMasterPayloadItem(form: AndroidMasterForm) {
+  return {
+    rowNumber: form.rowNumber,
+    sortOrder: form.sortOrder,
+    manufacturer: form.manufacturer.trim(),
+    modelName: form.modelName.trim(),
+    modelNumber: form.modelNumber.trim(),
+    screenPrice:
+      form.screenStatus === manualPriceStatusOption
+        ? normalizeManualPrice(form.screenPrice)
+        : form.screenPrice.trim(),
+    screenStatus:
+      form.screenStatus === manualPriceStatusOption
+        ? manualPriceStoredStatus
+        : form.screenStatus,
+    batteryStatus: createAndroidStatusPayloadValue(
+      form.batteryStatus,
+      form.batteryManualPrice,
+    ),
+    chargePortStatus: createAndroidStatusPayloadValue(
+      form.chargePortStatus,
+      form.chargePortManualPrice,
+    ),
+    cameraLensStatus: createAndroidStatusPayloadValue(
+      form.cameraLensStatus,
+      form.cameraLensManualPrice,
+    ),
+    sleepButtonStatus: createAndroidStatusPayloadValue(
+      form.sleepButtonStatus,
+      form.sleepButtonManualPrice,
+    ),
+    volumeButtonStatus: createAndroidStatusPayloadValue(
+      form.volumeButtonStatus,
+      form.volumeButtonManualPrice,
+    ),
+    note: form.note.trim(),
+    receptionStatus: form.receptionStatus,
+  };
+}
+
+function createAndroidStatusPayloadValue(status: string, manualPrice: string) {
+  const normalizedPrice = normalizeManualPrice(manualPrice);
+
+  return status === manualPriceStatusOption
+    ? `${manualPriceStoredPrefix}${normalizedPrice}`
+    : status;
+}
+
+function normalizeManualPrice(value: string) {
+  const normalized = value.normalize("NFKC").trim().replace(/,/g, "");
+
+  return /^\d+$/.test(normalized) ? normalized : "";
+}
+
+function findAndroidDuplicateCandidates(
+  rows: AndroidPriceMasterItem[],
+  form: AndroidMasterForm,
+) {
+  const manufacturer = normalizeModelName(form.manufacturer);
+  const modelName = normalizeModelName(form.modelName);
+  const modelNumber = normalizeModelName(form.modelNumber);
+
+  if (!manufacturer || !modelName) {
+    return [];
+  }
+
+  return rows.filter((item) => {
+    if (form.rowNumber && item.rowNumber === form.rowNumber) {
+      return false;
+    }
+
+    const sameManufacturer = normalizeModelName(item.manufacturer) === manufacturer;
+    const sameModelName = normalizeModelName(item.modelName) === modelName;
+    const rowModelNumber = normalizeModelName(item.modelNumber);
+    const modelNumberIsClose =
+      !modelNumber || !rowModelNumber || rowModelNumber === modelNumber;
+
+    return sameManufacturer && sameModelName && modelNumberIsClose;
+  });
+}
+
 function validateMasterForm({
   activeTab,
   androidMode,
@@ -4401,11 +4754,13 @@ function validateMasterForm({
       return "変更対象を選択してください。";
     }
 
-    return validateRequiredMasterFields(androidForm, [
+    const requiredValidation = validateRequiredMasterFields(androidForm, [
       ["manufacturer", "メーカー"],
       ["modelName", "機種名"],
       ["receptionStatus", "受付状態"],
     ]);
+
+    return requiredValidation || validateAndroidManualPrices(androidForm);
   }
 
   if (activeTab === "Switch") {
@@ -4480,7 +4835,7 @@ function createMasterActionPayload({
           : "updateAndroidMasterItem",
       payload: {
         ...authPayload,
-        item: androidForm,
+        item: createAndroidMasterPayloadItem(androidForm),
       },
     };
   }
@@ -5655,6 +6010,18 @@ function getAndroidRepairEstimate(
     };
   }
 
+  const manualPrice = getManualPriceFromStatus(status);
+
+  if (manualPrice !== undefined) {
+    return {
+      repairType: definition.label,
+      price: manualPrice,
+      status: "店舗対応可",
+      note: item.note,
+      receptionStatus: item.receptionStatus,
+    };
+  }
+
   if (status === "外注必要") {
     return {
       repairType: definition.label,
@@ -5961,6 +6328,18 @@ function normalizePriceText(value: string) {
   return value.normalize("NFKC").trim().replace(/,/g, "").replace(/\s+/g, "");
 }
 
+function getManualPriceFromStatus(status: string) {
+  const parsed = parseManualPriceStatus(status);
+
+  if (parsed.status !== manualPriceStatusOption || !parsed.manualPrice) {
+    return undefined;
+  }
+
+  const price = Number(parsed.manualPrice);
+
+  return Number.isFinite(price) ? price : undefined;
+}
+
 function formatTaxIncludedYen(value: number) {
   return `${value.toLocaleString("ja-JP")}円（税込）`;
 }
@@ -6053,6 +6432,44 @@ function androidMakerMatches(selectedMaker: string, rowMaker: string) {
 
 function normalizeSearchText(value: string) {
   return value.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function normalizeModelName(value: string) {
+  return normalizeRomanNumeralsForModel(
+    value.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase(),
+  ).replace(/[\s_\-‐‑‒–—ー]/g, "");
+}
+
+function normalizeRomanNumeralsForModel(value: string) {
+  return value
+    .replace(/(\d+)(ix|viii|vii|vi|iv|v|iii|ii|i)\b/g, (_, number, roman) =>
+      `${number}${romanNumeralToNumber(roman)}`,
+    )
+    .replace(/\bix\b/g, "9")
+    .replace(/\bviii\b/g, "8")
+    .replace(/\bvii\b/g, "7")
+    .replace(/\bvi\b/g, "6")
+    .replace(/\biv\b/g, "4")
+    .replace(/\bv\b/g, "5")
+    .replace(/\biii\b/g, "3")
+    .replace(/\bii\b/g, "2")
+    .replace(/\bi\b/g, "1");
+}
+
+function romanNumeralToNumber(value: string) {
+  const values: Record<string, string> = {
+    i: "1",
+    ii: "2",
+    iii: "3",
+    iv: "4",
+    v: "5",
+    vi: "6",
+    vii: "7",
+    viii: "8",
+    ix: "9",
+  };
+
+  return values[value] || value;
 }
 
 function isSwitchBodyModel(modelName: string) {
