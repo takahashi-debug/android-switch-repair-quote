@@ -276,6 +276,8 @@ const androidAdditionalRepairStatusOptions = [
   "非対応",
   manualPriceStatusOption,
 ];
+const androidPriceSupportSettingHelpText =
+  "価格・対応設定では、店頭対応可・要確認・外注必要・非対応・料金手動設定を選択できます。";
 const manualPriceStoredStatus = "料金手動設定";
 const manualPriceStoredPrefix = "料金手動設定:";
 const receptionStatusOptions = ["受付可", "要確認", "受付停止"];
@@ -2886,7 +2888,7 @@ function AndroidMasterPanel({
           </MasterSection>
           <MasterSection
             title="固定修理メニュー"
-            description="見積もり画面に標準で表示するAndroid修理メニューを設定します。"
+            description={`見積もり画面に標準で表示するAndroid修理メニューを設定します。${androidPriceSupportSettingHelpText}`}
           >
             <div className="grid min-w-0 gap-4 lg:grid-cols-2">
               <AndroidFixedRepairCard
@@ -3567,7 +3569,7 @@ function AndroidFixedRepairCard({
     <section className="grid min-w-0 gap-3 rounded-md border border-slate-200 bg-white p-4">
       <h4 className="text-sm font-bold text-slate-900">{title}</h4>
       <MasterSelectInput
-        label="対応区分"
+        label={`${title}の価格・対応設定`}
         value={status}
         options={[...supportStatusOptions, manualPriceStatusOption]}
         onChange={onStatusChange}
@@ -3633,7 +3635,7 @@ function AndroidAdditionalRepairSettingsPanel({
         追加修理メニュー設定（{definitions.length}件）
       </summary>
       <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">
-        修理メニュー管理で追加したAndroidメニューの、機種別対応可否を設定できます。未設定の場合は見積もり時に要確認として扱われます。
+        修理メニュー管理で追加したAndroidメニューの、機種別の価格・対応設定を変更できます。未設定の場合は見積もり時に要確認として扱われます。{androidPriceSupportSettingHelpText}
       </p>
       <div className="mt-4 grid min-w-0 gap-4">
         {definitions.map((definition) => {
@@ -3657,7 +3659,7 @@ function AndroidAdditionalRepairSettingsPanel({
               </div>
               <div className="grid min-w-0 gap-3 md:grid-cols-2">
                 <MasterSelectInput
-                  label="対応区分"
+                  label="価格・対応設定"
                   required
                   value={setting.repairStatus}
                   options={androidAdditionalRepairStatusOptions}
