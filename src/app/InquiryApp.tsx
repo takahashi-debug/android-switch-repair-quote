@@ -90,7 +90,7 @@ type SwitchMasterForm = {
 type RepairItemForm = {
   rowNumber?: number;
   sortOrder: string;
-  category: InquiryCategory | "";
+  category: string;
   repairItemName: string;
   displayName: string;
   priceType: string;
@@ -107,6 +107,11 @@ type MasterFeedback = {
 };
 
 type AndroidMasterModelOption = {
+  key: string;
+  label: string;
+};
+
+type RepairItemNameOption = {
   key: string;
   label: string;
 };
@@ -2473,7 +2478,10 @@ function MasterManagementModal({
 
       await postMasterAction(action, payload);
       await onSaved();
-      setFeedback({ tone: "success", message: "保存しました。選択肢を更新しました。" });
+      setFeedback({
+        tone: "success",
+        message: "保存しました。データを再読み込みしました。",
+      });
 
       if (activeTab === "Android" && androidMode === "新規機種追加") {
         setAndroidForm(createEmptyAndroidMasterForm());
@@ -3013,9 +3021,43 @@ function RepairItemMasterPanel({
   onSelect: (item: RepairItemMasterItem) => void;
   onFormChange: React.Dispatch<React.SetStateAction<RepairItemForm>>;
 }) {
-  const filteredRows = filterMasterRows(rows, search, (item) =>
-    `${item.category} ${item.repairItemName} ${item.displayName} ${item.targetModelCategory}`,
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [selectedRepairItemKey, setSelectedRepairItemKey] = useState("");
+  const categoryOptions = useMemo(
+    () => uniqueValues(rows.map((item) => item.category)),
+    [rows],
   );
+  const repairItemOptions = useMemo(
+    () => createRepairItemNameOptions(rows, selectedCategory, search),
+    [rows, search, selectedCategory],
+  );
+  const candidateRows = useMemo(
+    () => getRepairItemCandidateRows(rows, selectedCategory, selectedRepairItemKey),
+    [rows, selectedCategory, selectedRepairItemKey],
+  );
+  const addRepairItemOptions = useMemo(
+    () => createRepairItemNameOptions(rows, form.category, ""),
+    [form.category, rows],
+  );
+  const showRepairItemForm = mode === "修理項目追加" || Boolean(form.rowNumber);
+
+  useEffect(() => {
+    if (mode !== "修理項目変更") {
+      setSelectedCategory("");
+      setSelectedRepairItemKey("");
+      onSearchChange("");
+    }
+  }, [mode, onSearchChange]);
+
+  useEffect(() => {
+    if (
+      mode === "修理項目変更" &&
+      candidateRows.length === 1 &&
+      form.rowNumber !== candidateRows[0].rowNumber
+    ) {
+      onSelect(candidateRows[0]);
+    }
+  }, [candidateRows, form.rowNumber, mode, onSelect]);
 
   return (
     <div className="grid min-w-0 gap-5">
@@ -3025,32 +3067,224 @@ function RepairItemMasterPanel({
         onChange={onModeChange}
       />
       {mode === "修理項目変更" ? (
-        <MasterSearchSelect
+        <RepairItemExistingDataSelector
+          categories={categoryOptions}
+          selectedCategory={selectedCategory}
+          repairItemOptions={repairItemOptions}
+          selectedRepairItemKey={selectedRepairItemKey}
           search={search}
-          rows={filteredRows}
+          candidateRows={candidateRows}
           selectedRowNumber={form.rowNumber}
-          placeholder="カテゴリ・修理項目名・表示名・対象機種カテゴリで検索"
-          getLabel={(item) =>
-            `${item.category} / ${item.repairItemName} / ${
-              item.displayName || "-"
-            } / ${item.targetModelCategory || "-"}`
-          }
-          onSearchChange={onSearchChange}
+          onCategoryChange={(category) => {
+            setSelectedCategory(category);
+            setSelectedRepairItemKey("");
+            onSearchChange("");
+            onFormChange(createEmptyRepairItemForm());
+          }}
+          onRepairItemChange={(repairItemKey) => {
+            setSelectedRepairItemKey(repairItemKey);
+            onFormChange(createEmptyRepairItemForm());
+          }}
+          onSearchChange={(value) => {
+            onSearchChange(value);
+            setSelectedRepairItemKey("");
+            onFormChange(createEmptyRepairItemForm());
+          }}
           onSelect={onSelect}
         />
       ) : null}
-      <MasterFormGrid>
-        <MasterTextInput label="並び順" value={form.sortOrder} onChange={(value) => onFormChange((current) => ({ ...current, sortOrder: value }))} />
-        <MasterSelectInput label="カテゴリ" required value={form.category} options={categories} onChange={(value) => onFormChange((current) => ({ ...current, category: value as InquiryCategory }))} />
-        <MasterTextInput label="修理項目名" required value={form.repairItemName} onChange={(value) => onFormChange((current) => ({ ...current, repairItemName: value }))} />
-        <MasterTextInput label="表示名" value={form.displayName} onChange={(value) => onFormChange((current) => ({ ...current, displayName: value }))} />
-        <MasterSelectInput label="価格種別" required value={form.priceType} options={repairItemPriceTypes} onChange={(value) => onFormChange((current) => ({ ...current, priceType: value }))} />
-        <MasterTextInput label="標準価格" value={form.standardPrice} onChange={(value) => onFormChange((current) => ({ ...current, standardPrice: value }))} />
-        <MasterSelectInput label="対応区分" required value={form.repairStatus} options={supportStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, repairStatus: value }))} />
-        <MasterSelectInput label="対象機種カテゴリ" value={form.targetModelCategory} options={repairItemTargetCategories} onChange={(value) => onFormChange((current) => ({ ...current, targetModelCategory: value }))} />
-        <MasterSelectInput label="受付状態" required value={form.receptionStatus} options={receptionStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, receptionStatus: value }))} />
-        <MasterTextArea label="備考" value={form.note} onChange={(value) => onFormChange((current) => ({ ...current, note: value }))} />
-      </MasterFormGrid>
+      {showRepairItemForm ? (
+        <MasterFormGrid>
+          <MasterTextInput label="並び順" value={form.sortOrder} onChange={(value) => onFormChange((current) => ({ ...current, sortOrder: value }))} />
+          <MasterSelectInput label="カテゴリ" required value={form.category} options={categoryOptions.length > 0 ? categoryOptions : categories} onChange={(value) => onFormChange((current) => ({ ...current, category: value, repairItemName: mode === "修理項目追加" ? "" : current.repairItemName }))} />
+          {mode === "修理項目追加" ? (
+            <RepairItemNameInput
+              value={form.repairItemName}
+              options={addRepairItemOptions}
+              disabled={!form.category}
+              onChange={(value) => onFormChange((current) => ({ ...current, repairItemName: value }))}
+            />
+          ) : (
+            <MasterTextInput label="修理項目名" required value={form.repairItemName} onChange={(value) => onFormChange((current) => ({ ...current, repairItemName: value }))} />
+          )}
+          <MasterTextInput label="表示名" value={form.displayName} onChange={(value) => onFormChange((current) => ({ ...current, displayName: value }))} />
+          <MasterSelectInput label="価格種別" required value={form.priceType} options={repairItemPriceTypes} onChange={(value) => onFormChange((current) => ({ ...current, priceType: value }))} />
+          <MasterTextInput label="標準価格" value={form.standardPrice} onChange={(value) => onFormChange((current) => ({ ...current, standardPrice: value }))} />
+          <MasterSelectInput label="対応区分" required value={form.repairStatus} options={supportStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, repairStatus: value }))} />
+          <MasterSelectInput label="対象機種カテゴリ" value={form.targetModelCategory} options={repairItemTargetCategories} onChange={(value) => onFormChange((current) => ({ ...current, targetModelCategory: value }))} />
+          <MasterSelectInput label="受付状態" required value={form.receptionStatus} options={receptionStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, receptionStatus: value }))} />
+          <MasterTextArea label="備考" value={form.note} onChange={(value) => onFormChange((current) => ({ ...current, note: value }))} />
+        </MasterFormGrid>
+      ) : (
+        <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm font-semibold leading-6 text-slate-500">
+          変更するデータを選択してください。
+        </p>
+      )}
+    </div>
+  );
+}
+
+function RepairItemExistingDataSelector({
+  categories,
+  selectedCategory,
+  repairItemOptions,
+  selectedRepairItemKey,
+  search,
+  candidateRows,
+  selectedRowNumber,
+  onCategoryChange,
+  onRepairItemChange,
+  onSearchChange,
+  onSelect,
+}: {
+  categories: string[];
+  selectedCategory: string;
+  repairItemOptions: RepairItemNameOption[];
+  selectedRepairItemKey: string;
+  search: string;
+  candidateRows: RepairItemMasterItem[];
+  selectedRowNumber?: number;
+  onCategoryChange: (category: string) => void;
+  onRepairItemChange: (repairItemKey: string) => void;
+  onSearchChange: (search: string) => void;
+  onSelect: (item: RepairItemMasterItem) => void;
+}) {
+  return (
+    <section className="grid min-w-0 gap-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+      <p className="text-sm font-semibold leading-6 text-slate-600">
+        カテゴリを選択すると、そのカテゴリに登録されている修理項目だけが表示されます。
+      </p>
+      <Field label="カテゴリ選択" requirement="必須">
+        <select
+          value={selectedCategory}
+          onChange={(event) => onCategoryChange(event.target.value)}
+          className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+        >
+          <option value="">カテゴリを選択してください</option>
+          {categories.map((category) => (
+            <option key={category} value={category}>
+              {category}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="修理項目検索" requirement="任意">
+        <input
+          value={search}
+          disabled={!selectedCategory}
+          placeholder={
+            selectedCategory
+              ? "修理項目名・表示名・対象機種カテゴリ・備考で検索"
+              : "先にカテゴリを選択してください"
+          }
+          onChange={(event) => onSearchChange(event.target.value)}
+          className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+        />
+      </Field>
+      <Field label="修理項目選択" requirement="必須">
+        <select
+          value={selectedRepairItemKey}
+          disabled={!selectedCategory || repairItemOptions.length === 0}
+          onChange={(event) => onRepairItemChange(event.target.value)}
+          className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+        >
+          <option value="">
+            {!selectedCategory
+              ? "先にカテゴリを選択してください"
+              : repairItemOptions.length === 0
+                ? "該当する修理項目がありません"
+                : "修理項目を選択してください"}
+          </option>
+          {repairItemOptions.map((option) => (
+            <option key={option.key} value={option.key}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="対象データ候補選択" requirement="必須">
+        <select
+          value={selectedRowNumber ?? ""}
+          disabled={!selectedRepairItemKey || candidateRows.length === 0}
+          onChange={(event) => {
+            const rowNumber = Number(event.target.value);
+            const item = candidateRows.find((row) => row.rowNumber === rowNumber);
+            if (item) {
+              onSelect(item);
+            }
+          }}
+          className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+        >
+          <option value="">
+            {!selectedRepairItemKey
+              ? "変更するデータを選択してください"
+              : candidateRows.length === 0
+                ? "該当する登録データがありません"
+                : "変更するデータを選択してください"}
+          </option>
+          {candidateRows.map((item) => (
+            <option key={item.rowNumber} value={item.rowNumber}>
+              {formatRepairItemCandidateLabel(item)}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {selectedRepairItemKey && candidateRows.length === 1 ? (
+        <p className="text-xs font-semibold leading-5 text-slate-500">
+          候補が1件のため自動選択します。
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function RepairItemNameInput({
+  value,
+  options,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  options: RepairItemNameOption[];
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  const optionLabels = options.map((option) => option.label);
+  const isKnownRepairItem = value && optionLabels.includes(value);
+  const selectValue = isKnownRepairItem ? value : value ? "__other__" : "";
+
+  return (
+    <div className="grid min-w-0 gap-3">
+      <Field label="修理項目名" requirement="必須">
+        <select
+          value={selectValue}
+          disabled={disabled}
+          onChange={(event) => {
+            const nextValue = event.target.value;
+            onChange(nextValue === "__other__" ? "" : nextValue);
+          }}
+          className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+        >
+          <option value="">
+            {disabled ? "カテゴリを選択してください" : "既存修理項目から選択"}
+          </option>
+          {options.map((option) => (
+            <option key={option.key} value={option.label}>
+              {option.label}
+            </option>
+          ))}
+          <option value="__other__">その他/新規入力</option>
+        </select>
+      </Field>
+      {selectValue === "__other__" ? (
+        <Field label="新規修理項目名" requirement="必須">
+          <input
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+          />
+        </Field>
+      ) : null}
     </div>
   );
 }
@@ -4724,7 +4958,7 @@ function createRepairItemFormFromItem(item: RepairItemMasterItem): RepairItemFor
   return {
     rowNumber: item.rowNumber,
     sortOrder: stringValue(item.sortOrder),
-    category: item.category === "Switch" ? "Switch" : "Android",
+    category: item.category,
     repairItemName: item.repairItemName,
     displayName: item.displayName,
     priceType: item.priceType,
@@ -4823,6 +5057,85 @@ function formatAndroidMasterCandidateLabel(item: AndroidPriceMasterItem) {
     `受付: ${item.receptionStatus || "-"}`,
     `行: ${item.rowNumber}`,
   ].join(" / ");
+}
+
+function createRepairItemNameOptions(
+  rows: RepairItemMasterItem[],
+  category: string,
+  search: string,
+): RepairItemNameOption[] {
+  if (!category) {
+    return [];
+  }
+
+  const query = normalizeRepairItemSearchText(search);
+  const options = new Map<string, RepairItemNameOption>();
+
+  rows.forEach((item) => {
+    if (item.category !== category) {
+      return;
+    }
+
+    const key = normalizeRepairItemName(
+      item.repairItemName || item.displayName,
+    );
+    if (!key || options.has(key)) {
+      return;
+    }
+
+    if (query) {
+      const searchText = normalizeRepairItemSearchText(
+        `${item.repairItemName} ${item.displayName} ${item.targetModelCategory} ${item.note}`,
+      );
+
+      if (!searchText.includes(query)) {
+        return;
+      }
+    }
+
+    options.set(key, {
+      key,
+      label: item.repairItemName || item.displayName,
+    });
+  });
+
+  return Array.from(options.values());
+}
+
+function getRepairItemCandidateRows(
+  rows: RepairItemMasterItem[],
+  category: string,
+  repairItemKey: string,
+) {
+  if (!category || !repairItemKey) {
+    return [];
+  }
+
+  return rows.filter(
+    (item) =>
+      item.category === category &&
+      normalizeRepairItemName(item.repairItemName || item.displayName) ===
+        repairItemKey,
+  );
+}
+
+function formatRepairItemCandidateLabel(item: RepairItemMasterItem) {
+  return [
+    item.repairItemName,
+    `表示名: ${item.displayName || "-"}`,
+    item.priceType || "-",
+    formatRepairItemStandardPrice(item.standardPrice),
+    item.repairStatus || "-",
+    item.targetModelCategory || "対象指定なし",
+    `受付: ${item.receptionStatus || "-"}`,
+    `行: ${item.rowNumber}`,
+  ].join(" / ");
+}
+
+function formatRepairItemStandardPrice(value: number | string) {
+  const text = stringValue(value);
+
+  return text ? `${text}円` : "価格なし";
 }
 
 function formatMasterPriceValue(value: number | string) {
@@ -6662,6 +6975,22 @@ function androidMakerMatches(selectedMaker: string, rowMaker: string) {
 
 function normalizeSearchText(value: string) {
   return value.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function normalizeRepairItemName(value: string) {
+  const compact = normalizeSearchText(value).replace(/[\s_\-‐‑‒–—ー]/g, "");
+
+  return compact
+    .replace(/battery/g, "バッテリー")
+    .replace(/screen/g, "画面")
+    .replace(/display/g, "画面")
+    .replace(/chargeport/g, "充電口")
+    .replace(/chargingport/g, "充電口")
+    .replace(/camera/g, "カメラ");
+}
+
+function normalizeRepairItemSearchText(value: string) {
+  return normalizeRepairItemName(value);
 }
 
 function normalizeModelName(value: string) {
