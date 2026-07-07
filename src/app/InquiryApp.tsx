@@ -106,6 +106,11 @@ type MasterFeedback = {
   message: string;
 };
 
+type AndroidMasterModelOption = {
+  key: string;
+  label: string;
+};
+
 type FormState = {
   category: InquiryCategory;
   maker: string;
@@ -2666,8 +2671,41 @@ function AndroidMasterPanel({
   onSelect: (item: AndroidPriceMasterItem) => void;
   onFormChange: React.Dispatch<React.SetStateAction<AndroidMasterForm>>;
 }) {
-  const filteredRows = filterAndroidMasterRows(rows, search);
+  const [selectedManufacturer, setSelectedManufacturer] = useState("");
+  const [selectedModelKey, setSelectedModelKey] = useState("");
+
+  const manufacturerOptions = useMemo(
+    () => uniqueValues(rows.map((item) => item.manufacturer)),
+    [rows],
+  );
+  const modelOptions = useMemo(
+    () => createAndroidModelOptions(rows, selectedManufacturer, search),
+    [rows, search, selectedManufacturer],
+  );
+  const candidateRows = useMemo(
+    () => getAndroidMasterCandidateRows(rows, selectedManufacturer, selectedModelKey),
+    [rows, selectedManufacturer, selectedModelKey],
+  );
   const duplicateCandidates = findAndroidDuplicateCandidates(rows, form);
+  const showAndroidForm = mode === "新規機種追加" || Boolean(form.rowNumber);
+
+  useEffect(() => {
+    if (mode !== "既存データ変更") {
+      setSelectedManufacturer("");
+      setSelectedModelKey("");
+      onSearchChange("");
+    }
+  }, [mode, onSearchChange]);
+
+  useEffect(() => {
+    if (
+      mode === "既存データ変更" &&
+      candidateRows.length === 1 &&
+      form.rowNumber !== candidateRows[0].rowNumber
+    ) {
+      onSelect(candidateRows[0]);
+    }
+  }, [candidateRows, form.rowNumber, mode, onSelect]);
 
   return (
     <div className="grid min-w-0 gap-5">
@@ -2677,88 +2715,224 @@ function AndroidMasterPanel({
         onChange={onModeChange}
       />
       {mode === "既存データ変更" ? (
-        <MasterSearchSelect
+        <AndroidExistingDataSelector
+          manufacturers={manufacturerOptions}
+          selectedManufacturer={selectedManufacturer}
+          modelOptions={modelOptions}
+          selectedModelKey={selectedModelKey}
           search={search}
-          rows={filteredRows}
+          candidateRows={candidateRows}
           selectedRowNumber={form.rowNumber}
-          placeholder="メーカー・機種名・型番で検索"
-          getLabel={(item) =>
-            `${item.manufacturer} / ${item.modelName} / ${item.modelNumber || "-"}`
-          }
-          onSearchChange={onSearchChange}
+          onManufacturerChange={(manufacturer) => {
+            setSelectedManufacturer(manufacturer);
+            setSelectedModelKey("");
+            onSearchChange("");
+            onFormChange(createEmptyAndroidMasterForm());
+          }}
+          onModelChange={(modelKey) => {
+            setSelectedModelKey(modelKey);
+            onFormChange(createEmptyAndroidMasterForm());
+          }}
+          onSearchChange={(value) => {
+            onSearchChange(value);
+            setSelectedModelKey("");
+            onFormChange(createEmptyAndroidMasterForm());
+          }}
           onSelect={onSelect}
         />
       ) : null}
-      <MasterFormGrid>
-        <MasterTextInput label="並び順" value={form.sortOrder} onChange={(value) => onFormChange((current) => ({ ...current, sortOrder: value }))} />
-        <AndroidManufacturerInput
-          value={form.manufacturer}
-          manufacturers={manufacturers}
-          onChange={(value) =>
-            onFormChange((current) => ({ ...current, manufacturer: value }))
-          }
-        />
-        <MasterTextInput label="機種名" required value={form.modelName} onChange={(value) => onFormChange((current) => ({ ...current, modelName: value }))} />
-        <MasterTextInput label="型番" value={form.modelNumber} onChange={(value) => onFormChange((current) => ({ ...current, modelNumber: value }))} />
-        <MasterTextInput label="画面修理価格" value={form.screenPrice} onChange={(value) => onFormChange((current) => ({ ...current, screenPrice: value }))} />
-        <AndroidRepairStatusInput
-          label="画面修理対応区分"
-          status={form.screenStatus}
-          manualPrice={form.screenPrice}
-          onStatusChange={(value) => onFormChange((current) => ({ ...current, screenStatus: value }))}
-          onManualPriceChange={(value) => onFormChange((current) => ({ ...current, screenPrice: value }))}
-        />
-        <AndroidRepairStatusInput
-          label="バッテリー対応区分"
-          status={form.batteryStatus}
-          manualPrice={form.batteryManualPrice}
-          onStatusChange={(value) => onFormChange((current) => ({ ...current, batteryStatus: value }))}
-          onManualPriceChange={(value) => onFormChange((current) => ({ ...current, batteryManualPrice: value }))}
-        />
-        <AndroidRepairStatusInput
-          label="充電口対応区分"
-          status={form.chargePortStatus}
-          manualPrice={form.chargePortManualPrice}
-          onStatusChange={(value) => onFormChange((current) => ({ ...current, chargePortStatus: value }))}
-          onManualPriceChange={(value) => onFormChange((current) => ({ ...current, chargePortManualPrice: value }))}
-        />
-        <AndroidRepairStatusInput
-          label="カメラレンズ対応区分"
-          status={form.cameraLensStatus}
-          manualPrice={form.cameraLensManualPrice}
-          onStatusChange={(value) => onFormChange((current) => ({ ...current, cameraLensStatus: value }))}
-          onManualPriceChange={(value) => onFormChange((current) => ({ ...current, cameraLensManualPrice: value }))}
-        />
-        <AndroidRepairStatusInput
-          label="スリープボタン対応区分"
-          status={form.sleepButtonStatus}
-          manualPrice={form.sleepButtonManualPrice}
-          onStatusChange={(value) => onFormChange((current) => ({ ...current, sleepButtonStatus: value }))}
-          onManualPriceChange={(value) => onFormChange((current) => ({ ...current, sleepButtonManualPrice: value }))}
-        />
-        <AndroidRepairStatusInput
-          label="音量ボタン対応区分"
-          status={form.volumeButtonStatus}
-          manualPrice={form.volumeButtonManualPrice}
-          onStatusChange={(value) => onFormChange((current) => ({ ...current, volumeButtonStatus: value }))}
-          onManualPriceChange={(value) => onFormChange((current) => ({ ...current, volumeButtonManualPrice: value }))}
-        />
-        <MasterSelectInput label="受付状態" required value={form.receptionStatus} options={receptionStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, receptionStatus: value }))} />
-        <MasterTextArea label="備考" value={form.note} onChange={(value) => onFormChange((current) => ({ ...current, note: value }))} />
-      </MasterFormGrid>
-      {duplicateCandidates.length > 0 ? (
-        <section className="grid min-w-0 gap-2 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-          <p className="font-bold">表記が近い既存データがあります。</p>
-          <ul className="grid min-w-0 gap-1">
-            {duplicateCandidates.slice(0, 5).map((item) => (
-              <li key={item.rowNumber} className="min-w-0 break-words">
-                {item.manufacturer} / {item.modelName} / {item.modelNumber || "-"}
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+      {showAndroidForm ? (
+        <>
+          <MasterFormGrid>
+            <MasterTextInput label="並び順" value={form.sortOrder} onChange={(value) => onFormChange((current) => ({ ...current, sortOrder: value }))} />
+            <AndroidManufacturerInput
+              value={form.manufacturer}
+              manufacturers={manufacturers}
+              onChange={(value) =>
+                onFormChange((current) => ({ ...current, manufacturer: value }))
+              }
+            />
+            <MasterTextInput label="機種名" required value={form.modelName} onChange={(value) => onFormChange((current) => ({ ...current, modelName: value }))} />
+            <MasterTextInput label="型番" value={form.modelNumber} onChange={(value) => onFormChange((current) => ({ ...current, modelNumber: value }))} />
+            <MasterTextInput label="画面修理価格" value={form.screenPrice} onChange={(value) => onFormChange((current) => ({ ...current, screenPrice: value }))} />
+            <AndroidRepairStatusInput
+              label="画面修理対応区分"
+              status={form.screenStatus}
+              manualPrice={form.screenPrice}
+              onStatusChange={(value) => onFormChange((current) => ({ ...current, screenStatus: value }))}
+              onManualPriceChange={(value) => onFormChange((current) => ({ ...current, screenPrice: value }))}
+            />
+            <AndroidRepairStatusInput
+              label="バッテリー対応区分"
+              status={form.batteryStatus}
+              manualPrice={form.batteryManualPrice}
+              onStatusChange={(value) => onFormChange((current) => ({ ...current, batteryStatus: value }))}
+              onManualPriceChange={(value) => onFormChange((current) => ({ ...current, batteryManualPrice: value }))}
+            />
+            <AndroidRepairStatusInput
+              label="充電口対応区分"
+              status={form.chargePortStatus}
+              manualPrice={form.chargePortManualPrice}
+              onStatusChange={(value) => onFormChange((current) => ({ ...current, chargePortStatus: value }))}
+              onManualPriceChange={(value) => onFormChange((current) => ({ ...current, chargePortManualPrice: value }))}
+            />
+            <AndroidRepairStatusInput
+              label="カメラレンズ対応区分"
+              status={form.cameraLensStatus}
+              manualPrice={form.cameraLensManualPrice}
+              onStatusChange={(value) => onFormChange((current) => ({ ...current, cameraLensStatus: value }))}
+              onManualPriceChange={(value) => onFormChange((current) => ({ ...current, cameraLensManualPrice: value }))}
+            />
+            <AndroidRepairStatusInput
+              label="スリープボタン対応区分"
+              status={form.sleepButtonStatus}
+              manualPrice={form.sleepButtonManualPrice}
+              onStatusChange={(value) => onFormChange((current) => ({ ...current, sleepButtonStatus: value }))}
+              onManualPriceChange={(value) => onFormChange((current) => ({ ...current, sleepButtonManualPrice: value }))}
+            />
+            <AndroidRepairStatusInput
+              label="音量ボタン対応区分"
+              status={form.volumeButtonStatus}
+              manualPrice={form.volumeButtonManualPrice}
+              onStatusChange={(value) => onFormChange((current) => ({ ...current, volumeButtonStatus: value }))}
+              onManualPriceChange={(value) => onFormChange((current) => ({ ...current, volumeButtonManualPrice: value }))}
+            />
+            <MasterSelectInput label="受付状態" required value={form.receptionStatus} options={receptionStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, receptionStatus: value }))} />
+            <MasterTextArea label="備考" value={form.note} onChange={(value) => onFormChange((current) => ({ ...current, note: value }))} />
+          </MasterFormGrid>
+          {duplicateCandidates.length > 0 ? (
+            <section className="grid min-w-0 gap-2 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+              <p className="font-bold">表記が近い既存データがあります。</p>
+              <ul className="grid min-w-0 gap-1">
+                {duplicateCandidates.slice(0, 5).map((item) => (
+                  <li key={item.rowNumber} className="min-w-0 break-words">
+                    {item.manufacturer} / {item.modelName} / {item.modelNumber || "-"}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+        </>
+      ) : (
+        <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm font-semibold leading-6 text-slate-500">
+          変更するデータを選択してください。
+        </p>
+      )}
     </div>
+  );
+}
+
+function AndroidExistingDataSelector({
+  manufacturers,
+  selectedManufacturer,
+  modelOptions,
+  selectedModelKey,
+  search,
+  candidateRows,
+  selectedRowNumber,
+  onManufacturerChange,
+  onModelChange,
+  onSearchChange,
+  onSelect,
+}: {
+  manufacturers: string[];
+  selectedManufacturer: string;
+  modelOptions: AndroidMasterModelOption[];
+  selectedModelKey: string;
+  search: string;
+  candidateRows: AndroidPriceMasterItem[];
+  selectedRowNumber?: number;
+  onManufacturerChange: (manufacturer: string) => void;
+  onModelChange: (modelKey: string) => void;
+  onSearchChange: (search: string) => void;
+  onSelect: (item: AndroidPriceMasterItem) => void;
+}) {
+  return (
+    <section className="grid min-w-0 gap-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+      <p className="text-sm font-semibold leading-6 text-slate-600">
+        メーカーを選択すると、そのメーカーに登録されている機種だけが表示されます。
+      </p>
+      <Field label="メーカー選択" requirement="必須">
+        <select
+          value={selectedManufacturer}
+          onChange={(event) => onManufacturerChange(event.target.value)}
+          className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+        >
+          <option value="">メーカーを選択してください</option>
+          {manufacturers.map((manufacturer) => (
+            <option key={manufacturer} value={manufacturer}>
+              {manufacturer}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="絞り込み検索" requirement="任意">
+        <input
+          value={search}
+          disabled={!selectedManufacturer}
+          placeholder={
+            selectedManufacturer
+              ? "機種名・型番で絞り込み"
+              : "メーカーを選択してください"
+          }
+          onChange={(event) => onSearchChange(event.target.value)}
+          className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+        />
+      </Field>
+      <Field label="機種選択" requirement="必須">
+        <select
+          value={selectedModelKey}
+          disabled={!selectedManufacturer || modelOptions.length === 0}
+          onChange={(event) => onModelChange(event.target.value)}
+          className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+        >
+          <option value="">
+            {!selectedManufacturer
+              ? "メーカーを選択してください"
+              : modelOptions.length === 0
+                ? "該当する機種がありません"
+                : "機種を選択してください"}
+          </option>
+          {modelOptions.map((model) => (
+            <option key={model.key} value={model.key}>
+              {model.label}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="型番/候補選択" requirement="必須">
+        <select
+          value={selectedRowNumber ?? ""}
+          disabled={!selectedModelKey || candidateRows.length === 0}
+          onChange={(event) => {
+            const rowNumber = Number(event.target.value);
+            const item = candidateRows.find((row) => row.rowNumber === rowNumber);
+            if (item) {
+              onSelect(item);
+            }
+          }}
+          className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+        >
+          <option value="">
+            {!selectedModelKey
+              ? "変更するデータを選択してください"
+              : candidateRows.length === 0
+                ? "該当する登録データがありません"
+                : "変更するデータを選択してください"}
+          </option>
+          {candidateRows.map((item) => (
+            <option key={item.rowNumber} value={item.rowNumber}>
+              {formatAndroidMasterCandidateLabel(item)}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {selectedModelKey && candidateRows.length === 1 ? (
+        <p className="text-xs font-semibold leading-5 text-slate-500">
+          候補が1件のため自動選択します。
+        </p>
+      ) : null}
+    </section>
   );
 }
 
@@ -4576,29 +4750,85 @@ function filterMasterRows<T>(
   return rows.filter((item) => normalizeSearchText(getSearchText(item)).includes(query));
 }
 
-function filterAndroidMasterRows(rows: AndroidPriceMasterItem[], search: string) {
-  const query = normalizeSearchText(search);
-  const modelQuery = normalizeModelName(search);
-
-  if (!query && !modelQuery) {
-    return rows;
+function createAndroidModelOptions(
+  rows: AndroidPriceMasterItem[],
+  manufacturer: string,
+  search: string,
+): AndroidMasterModelOption[] {
+  if (!manufacturer) {
+    return [];
   }
 
-  return rows.filter((item) => {
-    const searchText = normalizeSearchText(
-      `${item.manufacturer} ${item.modelName} ${item.modelNumber}`,
-    );
-    const normalizedModelText = [
-      normalizeModelName(item.manufacturer),
-      normalizeModelName(item.modelName),
-      normalizeModelName(item.modelNumber),
-    ].join(" ");
+  const query = normalizeSearchText(search);
+  const modelQuery = normalizeModelName(search);
+  const options = new Map<string, AndroidMasterModelOption>();
 
-    return (
-      (query && searchText.includes(query)) ||
-      (modelQuery && normalizedModelText.includes(modelQuery))
-    );
+  rows.forEach((item) => {
+    if (item.manufacturer !== manufacturer) {
+      return;
+    }
+
+    const key = normalizeModelName(item.modelName);
+    if (!key || options.has(key)) {
+      return;
+    }
+
+    if (query || modelQuery) {
+      const searchText = normalizeSearchText(
+        `${item.modelName} ${item.modelNumber}`,
+      );
+      const normalizedModelText = [
+        normalizeModelName(item.modelName),
+        normalizeModelName(item.modelNumber),
+      ].join(" ");
+
+      if (
+        (query && !searchText.includes(query)) &&
+        (modelQuery && !normalizedModelText.includes(modelQuery))
+      ) {
+        return;
+      }
+    }
+
+    options.set(key, {
+      key,
+      label: item.modelName,
+    });
   });
+
+  return Array.from(options.values());
+}
+
+function getAndroidMasterCandidateRows(
+  rows: AndroidPriceMasterItem[],
+  manufacturer: string,
+  modelKey: string,
+) {
+  if (!manufacturer || !modelKey) {
+    return [];
+  }
+
+  return rows.filter(
+    (item) =>
+      item.manufacturer === manufacturer &&
+      normalizeModelName(item.modelName) === modelKey,
+  );
+}
+
+function formatAndroidMasterCandidateLabel(item: AndroidPriceMasterItem) {
+  return [
+    item.modelName,
+    item.modelNumber ? `型番: ${item.modelNumber}` : "型番なし",
+    `画面: ${formatMasterPriceValue(item.screenPrice)}`,
+    `受付: ${item.receptionStatus || "-"}`,
+    `行: ${item.rowNumber}`,
+  ].join(" / ");
+}
+
+function formatMasterPriceValue(value: number | string) {
+  const text = stringValue(value);
+
+  return text ? `${text}円` : "-";
 }
 
 function parseManualPriceStatus(value: string) {
