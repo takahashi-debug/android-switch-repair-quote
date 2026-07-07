@@ -3024,7 +3024,7 @@ function RepairItemMasterPanel({
   const [selectedCategory, setSelectedCategory] = useState("");
   const [selectedRepairItemKey, setSelectedRepairItemKey] = useState("");
   const categoryOptions = useMemo(
-    () => uniqueValues(rows.map((item) => item.category)),
+    () => createRepairItemCategoryOptions(rows),
     [rows],
   );
   const repairItemOptions = useMemo(
@@ -3096,7 +3096,7 @@ function RepairItemMasterPanel({
       {showRepairItemForm ? (
         <MasterFormGrid>
           <MasterTextInput label="並び順" value={form.sortOrder} onChange={(value) => onFormChange((current) => ({ ...current, sortOrder: value }))} />
-          <MasterSelectInput label="カテゴリ" required value={form.category} options={categoryOptions.length > 0 ? categoryOptions : categories} onChange={(value) => onFormChange((current) => ({ ...current, category: value, repairItemName: mode === "修理項目追加" ? "" : current.repairItemName }))} />
+          <MasterSelectInput label="カテゴリ" required value={form.category} options={categoryOptions} onChange={(value) => onFormChange((current) => ({ ...current, category: value, repairItemName: mode === "修理項目追加" ? "" : current.repairItemName }))} />
           {mode === "修理項目追加" ? (
             <RepairItemNameInput
               value={form.repairItemName}
@@ -3202,6 +3202,11 @@ function RepairItemExistingDataSelector({
           ))}
         </select>
       </Field>
+      {selectedCategory && repairItemOptions.length === 0 ? (
+        <p className="rounded-md border border-dashed border-slate-300 bg-white px-4 py-3 text-sm font-semibold leading-6 text-slate-500">
+          修理項目追加から先に登録してください。
+        </p>
+      ) : null}
       <Field label="対象データ候補選択" requirement="必須">
         <select
           value={selectedRowNumber ?? ""}
@@ -3284,6 +3289,11 @@ function RepairItemNameInput({
             className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
           />
         </Field>
+      ) : null}
+      {!disabled && options.length === 0 ? (
+        <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm font-semibold leading-6 text-slate-500">
+          既存の修理項目はありません。新規入力してください。
+        </p>
       ) : null}
     </div>
   );
@@ -5100,6 +5110,13 @@ function createRepairItemNameOptions(
   });
 
   return Array.from(options.values());
+}
+
+function createRepairItemCategoryOptions(rows: RepairItemMasterItem[]) {
+  return uniqueValues([
+    ...categories,
+    ...rows.map((item) => item.category),
+  ]);
 }
 
 function getRepairItemCandidateRows(
