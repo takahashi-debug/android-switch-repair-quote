@@ -2632,6 +2632,7 @@ function MasterManagementModal({
       const { action, payload } = createMasterActionPayload({
         activeTab,
         androidMode,
+        androidRows,
         switchMode,
         repairItemMode,
         androidForm,
@@ -2974,7 +2975,25 @@ function AndroidMasterPanel({
               <MasterTextInput label="機種名" required value={form.modelName} onChange={(value) => onFormChange((current) => ({ ...current, modelName: value }))} />
               <MasterTextInput label="型番" value={form.modelNumber} onChange={(value) => onFormChange((current) => ({ ...current, modelNumber: value }))} />
               <MasterSelectInput label="受付状態" required value={form.receptionStatus} options={receptionStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, receptionStatus: value }))} />
-              <MasterTextInput label="並び順" value={form.sortOrder} onChange={(value) => onFormChange((current) => ({ ...current, sortOrder: value }))} />
+              <MasterTextInput
+                label={
+                  mode === "新規機種追加"
+                    ? "表示順（任意・自動設定）"
+                    : "表示順"
+                }
+                value={form.sortOrder}
+                placeholder={
+                  mode === "新規機種追加" ? "未入力で自動設定" : undefined
+                }
+                guide={
+                  mode === "新規機種追加"
+                    ? "未入力の場合は、新しく追加した機種が候補の上に表示されるよう自動設定されます。"
+                    : "数字が小さいほど上に表示されます。"
+                }
+                onChange={(value) =>
+                  onFormChange((current) => ({ ...current, sortOrder: value }))
+                }
+              />
               <MasterTextArea label="備考" value={form.note} onChange={(value) => onFormChange((current) => ({ ...current, note: value }))} />
             </MasterFormGrid>
           </MasterSection>
@@ -3513,17 +3532,22 @@ function MasterTextInput({
   label,
   required = false,
   value,
+  placeholder,
+  guide,
   onChange,
 }: {
   label: string;
   required?: boolean;
   value: string;
+  placeholder?: string;
+  guide?: string;
   onChange: (value: string) => void;
 }) {
   return (
-    <Field label={label} requirement={required ? "必須" : "任意"}>
+    <Field label={label} requirement={required ? "必須" : "任意"} guide={guide}>
       <input
         value={value}
+        placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
         className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
       />
@@ -5889,6 +5913,37 @@ function createAndroidMasterPayloadItem(form: AndroidMasterForm) {
   };
 }
 
+function createAndroidMasterPayloadForm(
+  form: AndroidMasterForm,
+  mode: AndroidMasterMode,
+  rows: AndroidPriceMasterItem[],
+): AndroidMasterForm {
+  if (mode !== "新規機種追加" || form.sortOrder.trim()) {
+    return form;
+  }
+
+  return {
+    ...form,
+    sortOrder: stringValue(getNextAndroidSortOrder(rows, form.manufacturer)),
+  };
+}
+
+function getNextAndroidSortOrder(
+  rows: AndroidPriceMasterItem[],
+  manufacturer: string,
+) {
+  const sortOrders = rows
+    .filter((item) => item.manufacturer === manufacturer.trim())
+    .map((item) => Number(item.sortOrder))
+    .filter(Number.isFinite);
+
+  if (sortOrders.length === 0) {
+    return 10;
+  }
+
+  return Math.min(...sortOrders) - 10;
+}
+
 function createAndroidStatusPayloadValue(
   status: string,
   manualPrice: string,
@@ -6023,6 +6078,7 @@ function validateRequiredMasterFields<T extends Record<string, unknown>>(
 function createMasterActionPayload({
   activeTab,
   androidMode,
+  androidRows,
   switchMode,
   repairItemMode,
   androidForm,
@@ -6034,6 +6090,7 @@ function createMasterActionPayload({
 }: {
   activeTab: MasterManagementTab;
   androidMode: AndroidMasterMode;
+  androidRows: AndroidPriceMasterItem[];
   switchMode: SwitchMasterMode;
   repairItemMode: RepairItemMode;
   androidForm: AndroidMasterForm;
@@ -6046,6 +6103,12 @@ function createMasterActionPayload({
   const authPayload = { storeName, loginEmail, role };
 
   if (activeTab === "Android") {
+    const payloadForm = createAndroidMasterPayloadForm(
+      androidForm,
+      androidMode,
+      androidRows,
+    );
+
     return {
       action:
         androidMode === "新規機種追加"
@@ -6053,7 +6116,7 @@ function createMasterActionPayload({
           : "updateAndroidMasterItem",
       payload: {
         ...authPayload,
-        item: createAndroidMasterPayloadItem(androidForm),
+        item: createAndroidMasterPayloadItem(payloadForm),
       },
     };
   }
