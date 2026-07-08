@@ -344,6 +344,7 @@ const ANDROID_OUTSOURCE_GUIDE = {
 const ANDROID_OUTSOURCE_REPAIR_PRICE = 33000;
 const OTHER_ANDROID_MANUFACTURER = "その他";
 const OTHER_ANDROID_MODEL_FALLBACK = "その他メーカー端末";
+const ANDROID_MODEL_CANDIDATE_LIMIT = 30;
 const OTHER_ANDROID_SCREEN_PRICE = "パーツ原価 + 11,000円";
 const OTHER_ANDROID_SCREEN_NOTE = "パーツ原価を確認してください。";
 const OTHER_ANDROID_CONFIRM_NOTE = "対応可否と部品状況を確認してください。";
@@ -519,30 +520,39 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
   const androidMakers = preferredAndroidMakers;
 
   const androidCandidates = useMemo(() => {
-    const query = normalizeSearchText(modelSearch);
-    const modelQuery = normalizeModelName(modelSearch);
+    const query = normalizeAndroidModelSearchText(modelSearch);
+    const queryTokens = getAndroidModelSearchTokens(modelSearch);
     const rows = androidRows.filter((item) => {
       const matchesMaker =
         !form.maker || androidMakerMatches(form.maker, item.manufacturer);
-      const target = normalizeSearchText(
-        `${item.manufacturer} ${item.modelName} ${item.modelNumber}`,
+      const target = createAndroidModelSearchTarget(
+        [
+          item.manufacturer,
+          item.modelName,
+          item.modelNumber,
+          normalizeModelName(item.manufacturer),
+          normalizeModelName(item.modelName),
+          normalizeModelName(item.modelNumber),
+        ].join(" "),
       );
-      const normalizedTarget = [
-        normalizeModelName(item.manufacturer),
-        normalizeModelName(item.modelName),
-        normalizeModelName(item.modelNumber),
-      ].join(" ");
 
       return (
         matchesMaker &&
-        ((!query && !modelQuery) ||
+        (!query ||
           target.includes(query) ||
-          normalizedTarget.includes(modelQuery))
+          queryTokens.every((token) => target.includes(token)))
       );
     });
 
     return uniqueModelCandidates(rows);
   }, [androidRows, form.maker, modelSearch]);
+
+  const visibleAndroidCandidates = androidCandidates.slice(
+    0,
+    ANDROID_MODEL_CANDIDATE_LIMIT,
+  );
+  const isAndroidCandidateLimited =
+    androidCandidates.length > visibleAndroidCandidates.length;
 
   const selectedAndroidModel = useMemo(
     () =>
@@ -928,7 +938,6 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
   }
 
   function updateAndroidMaker(maker: string) {
-    setModelSearch("");
     setSelectedAndroidModelLabel("");
     setValidationError("");
     setForm((current) => ({
@@ -942,9 +951,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
     }));
   }
 
-  function updateAndroidModel(value: string) {
-    const candidate = androidSelectCandidates.find((item) => item.label === value);
-
+  function selectAndroidModel(candidate: ModelCandidate | undefined) {
     if (!candidate) {
       return;
     }
@@ -953,11 +960,28 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
     setValidationError("");
     setForm((current) => ({
       ...current,
-      maker: current.maker || candidate.maker,
+      maker: candidate.maker,
       modelName: candidate.modelName,
       modelNumber: candidate.modelNumber,
       repairType: "",
       symptom: "",
+    }));
+  }
+
+  function updateAndroidModel(value: string) {
+    selectAndroidModel(androidSelectCandidates.find((item) => item.label === value));
+  }
+
+  function clearAndroidModelSelection() {
+    setSelectedAndroidModelLabel("");
+    setValidationError("");
+    setForm((current) => ({
+      ...current,
+      modelName: "",
+      modelNumber: "",
+      repairType: "",
+      symptom: "",
+      selectedOptionKeys: [],
     }));
   }
 
@@ -1481,6 +1505,79 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
                 </>
               ) : (
                 <>
+                  <Field label="機種名・型番で検索">
+                    <input
+                      value={modelSearch}
+                      onChange={(event) => setModelSearch(event.target.value)}
+                      placeholder="機種名または型番で検索"
+                      className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                    />
+                    {modelSearch.trim() ? (
+                      <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                        <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-2">
+                          <p className="text-sm font-semibold text-slate-700">
+                            {androidCandidates.length === 0
+                              ? "該当する機種がありません"
+                              : isAndroidCandidateLimited
+                                ? `検索結果：${androidCandidates.length}件中 ${visibleAndroidCandidates.length}件を表示`
+                                : `検索結果：${androidCandidates.length}件`}
+                          </p>
+                          {isAndroidCandidateLimited ? (
+                            <p className="text-xs text-slate-500">
+                              候補が多いため、機種名や型番で絞り込んでください。
+                            </p>
+                          ) : null}
+                        </div>
+                        {visibleAndroidCandidates.length > 0 ? (
+                          <div className="mt-3 grid max-h-96 gap-2 overflow-y-auto pr-1">
+                            {visibleAndroidCandidates.map((candidate) => {
+                              const selected =
+                                selectedAndroidModelLabel === candidate.label;
+
+                              return (
+                                <button
+                                  type="button"
+                                  key={candidate.label}
+                                  onClick={() => selectAndroidModel(candidate)}
+                                  className={`min-h-14 rounded-lg border bg-white p-3 text-left text-sm transition hover:border-blue-300 hover:bg-blue-50 ${
+                                    selected
+                                      ? "border-blue-500 ring-2 ring-blue-100"
+                                      : "border-slate-200"
+                                  }`}
+                                >
+                                  <span className="block break-words font-semibold text-slate-900">
+                                    {candidate.modelName} / {candidate.maker} /{" "}
+                                    {candidate.modelNumber || "型番なし"}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {selectedAndroidModel ? (
+                      <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-4">
+                        <p className="text-xs font-semibold text-blue-700">
+                          選択中の機種
+                        </p>
+                        <div className="mt-2 flex min-w-0 flex-wrap items-center justify-between gap-3">
+                          <p className="min-w-0 break-words text-base font-semibold text-slate-900">
+                            {selectedAndroidModel.modelName} /{" "}
+                            {selectedAndroidModel.modelNumber || "型番なし"}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={clearAndroidModelSelection}
+                            className="min-h-10 rounded-lg border border-blue-200 bg-white px-4 text-sm font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100"
+                          >
+                            選択を解除
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </Field>
+
                   <Field
                     label="メーカーを選択"
                     step="STEP 1"
@@ -1507,7 +1604,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
                       !form.modelName
                         ? isOtherAndroidManufacturer
                           ? "機種名を入力してください。"
-                          : "機種を検索し、候補から選択してください。"
+                          : "候補から機種を選択してください。"
                         : undefined
                     }
                   >
@@ -1522,18 +1619,12 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
                       />
                     ) : (
                       <>
-                        <input
-                          value={modelSearch}
-                          onChange={(event) => setModelSearch(event.target.value)}
-                          placeholder="機種名または型番で検索"
-                          className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                        />
                         <select
                           value={selectedAndroidModelLabel}
                           onChange={(event) =>
                             updateAndroidModel(event.target.value)
                           }
-                          className="mt-3 min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                          className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
                         >
                           <option value="">機種候補を選択</option>
                           {androidSelectCandidates.map((candidate) => (
@@ -7721,9 +7812,58 @@ function normalizeRepairItemSearchText(value: string) {
 }
 
 function normalizeModelName(value: string) {
+  return normalizeAndroidModelSearchText(value);
+}
+
+function createAndroidModelSearchTarget(value: string) {
+  const normalized = normalizeAndroidModelText(value);
+
   return normalizeRomanNumeralsForModel(
-    value.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase(),
+    applyAndroidModelSearchAliases(normalized),
   ).replace(/[\s_\-‐‑‒–—ー]/g, "");
+}
+
+function getAndroidModelSearchTokens(value: string) {
+  return normalizeAndroidModelText(value)
+    .split(" ")
+    .map(normalizeAndroidModelSearchText)
+    .filter(Boolean);
+}
+
+function normalizeAndroidModelSearchText(value: string) {
+  return createAndroidModelSearchTarget(value);
+}
+
+function normalizeAndroidModelText(value: string) {
+  return convertHiraganaToKatakana(
+    value.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase(),
+  );
+}
+
+function convertHiraganaToKatakana(value: string) {
+  return value.replace(/[\u3041-\u3096]/g, (char) =>
+    String.fromCharCode(char.charCodeAt(0) + 0x60),
+  );
+}
+
+function applyAndroidModelSearchAliases(value: string) {
+  const aliases: Array<[RegExp, string]> = [
+    [/ピクセル|pixel/g, "pixel"],
+    [/エクスペリア|xperia/g, "xperia"],
+    [/ギャラクシー|galaxy/g, "galaxy"],
+    [/アクオス|aquos/g, "aquos"],
+    [/オッポ|oppo/g, "oppo"],
+    [/シャオミ|xiaomi/g, "xiaomi"],
+    [/ファーウェイ|huawei/g, "huawei"],
+    [/モトローラ|motorola/g, "motorola"],
+    [/レドミ|redmi/g, "redmi"],
+    [/ポコ|poco/g, "poco"],
+  ];
+
+  return aliases.reduce(
+    (normalized, [pattern, replacement]) => normalized.replace(pattern, replacement),
+    value,
+  );
 }
 
 function normalizeRomanNumeralsForModel(value: string) {
