@@ -25,6 +25,15 @@ const ANDROID_MASTER_HEADERS = [
   "受付状態",
 ];
 
+const ANDROID_SUPPORT_STATUS_HEADERS = [
+  "画面修理対応区分",
+  "バッテリー対応区分",
+  "充電口対応区分",
+  "カメラレンズ対応区分",
+  "スリープボタン対応区分",
+  "音量ボタン対応区分",
+];
+
 const SWITCH_MASTER_HEADERS = [
   "並び順",
   "機種名",
@@ -209,6 +218,10 @@ function doPost(e) {
 
     if (action === "updateAndroidMasterItem") {
       return createJsonResponse(updateAndroidMasterItem(payload));
+    }
+
+    if (action === "deleteAndroidMasterItem") {
+      return createJsonResponse(deleteAndroidMasterItem(payload));
     }
 
     if (action === "addSwitchMasterItem") {
@@ -498,9 +511,17 @@ function addAndroidMasterItem(payload) {
   if (adminError) return adminError;
 
   const sheet = getRequiredSheet_(ANDROID_MASTER_SHEET_NAME);
-  const values = androidMasterItemToRow_(payload.item || {});
-  sheet.appendRow(values);
-  const rowNumber = sheet.getLastRow();
+  const rowNumber = Math.max(sheet.getLastRow() + 1, 2);
+  const valuesByHeader = normalizeAndroidMasterItemForWrite_(
+    payload.item || {},
+    {},
+  );
+  writeRowByHeaders_(sheet, rowNumber, valuesByHeader);
+  const afterValue = getRowObjectByHeaders_(
+    sheet,
+    rowNumber,
+    ANDROID_MASTER_HEADERS,
+  );
 
   appendMasterChangeHistory_(payload, {
     operationType: "Android新規追加",
@@ -508,7 +529,7 @@ function addAndroidMasterItem(payload) {
     targetSheet: ANDROID_MASTER_SHEET_NAME,
     rowNumber: rowNumber,
     beforeValue: "",
-    afterValue: rowToObject_(ANDROID_MASTER_HEADERS, values),
+    afterValue: afterValue,
     result: "成功",
   });
 
@@ -526,20 +547,29 @@ function updateAndroidMasterItem(payload) {
 
   const sheet = getRequiredSheet_(ANDROID_MASTER_SHEET_NAME);
   const rowNumber = normalizeRowNumber_(payload.item && payload.item.rowNumber);
-  const beforeValues = sheet
-    .getRange(rowNumber, 1, 1, ANDROID_MASTER_HEADERS.length)
-    .getValues()[0];
-  const values = androidMasterItemToRow_(payload.item || {});
-
-  sheet.getRange(rowNumber, 1, 1, values.length).setValues([values]);
+  const beforeValue = getRowObjectByHeaders_(
+    sheet,
+    rowNumber,
+    ANDROID_MASTER_HEADERS,
+  );
+  const valuesByHeader = normalizeAndroidMasterItemForWrite_(
+    payload.item || {},
+    beforeValue,
+  );
+  writeRowByHeaders_(sheet, rowNumber, valuesByHeader);
+  const afterValue = getRowObjectByHeaders_(
+    sheet,
+    rowNumber,
+    ANDROID_MASTER_HEADERS,
+  );
 
   appendMasterChangeHistory_(payload, {
     operationType: "Android既存変更",
     category: "Android",
     targetSheet: ANDROID_MASTER_SHEET_NAME,
     rowNumber: rowNumber,
-    beforeValue: rowToObject_(ANDROID_MASTER_HEADERS, beforeValues),
-    afterValue: rowToObject_(ANDROID_MASTER_HEADERS, values),
+    beforeValue: beforeValue,
+    afterValue: afterValue,
     result: "成功",
   });
 
@@ -548,6 +578,55 @@ function updateAndroidMasterItem(payload) {
     ok: true,
     rowNumber: rowNumber,
     message: "Androidマスターを更新しました。",
+  };
+}
+
+function deleteAndroidMasterItem(payload) {
+  const adminError = getAdminRoleError_(payload);
+  if (adminError) return adminError;
+
+  const sheet = getRequiredSheet_(ANDROID_MASTER_SHEET_NAME);
+  const rowNumber = normalizeRowNumber_(payload.rowNumber);
+
+  if (rowNumber > sheet.getLastRow()) {
+    throw new Error("削除対象の行が見つかりません。");
+  }
+
+  const beforeValue = getRowObjectByHeaders_(
+    sheet,
+    rowNumber,
+    ANDROID_MASTER_HEADERS,
+  );
+  const headerIndexes = getHeaderIndexes_(sheet);
+  const receptionStatusColumn = headerIndexes["受付状態"];
+
+  if (receptionStatusColumn === undefined) {
+    throw new Error("受付状態列が見つからないため削除できません。");
+  }
+
+  sheet.getRange(rowNumber, receptionStatusColumn + 1).setValue("受付停止中");
+
+  const afterValue = getRowObjectByHeaders_(
+    sheet,
+    rowNumber,
+    ANDROID_MASTER_HEADERS,
+  );
+
+  appendMasterChangeHistory_(payload, {
+    operationType: "Android機種削除",
+    category: "Android",
+    targetSheet: ANDROID_MASTER_SHEET_NAME,
+    rowNumber: rowNumber,
+    beforeValue: beforeValue,
+    afterValue: afterValue,
+    result: "成功",
+  });
+
+  return {
+    success: true,
+    ok: true,
+    message: "登録機種を削除しました。",
+    rowNumber: rowNumber,
   };
 }
 
@@ -842,6 +921,101 @@ function androidMasterItemToRow_(item) {
   ];
 }
 
+function androidMasterItemToObject_(item) {
+  return rowToObject_(ANDROID_MASTER_HEADERS, androidMasterItemToRow_(item));
+}
+
+function normalizeAndroidMasterItemForWrite_(item, existingValues) {
+  const result = androidMasterItemToObject_(item);
+
+  ANDROID_SUPPORT_STATUS_HEADERS.forEach(function(header) {
+    result[header] = normalizeAndroidSupportStatus_(
+      result[header],
+      existingValues[header],
+    );
+  });
+
+  result["受付状態"] = normalizeAndroidReceptionStatus_(
+    result["受付状態"],
+    existingValues["受付状態"],
+  );
+
+  return result;
+}
+
+function normalizeAndroidReceptionStatus_(value, existingValue) {
+  const normalized = extractAndroidReceptionStatus_(value);
+
+  if (normalized) {
+    return normalized;
+  }
+
+  return extractAndroidReceptionStatus_(existingValue) || "受付中";
+}
+
+function extractAndroidReceptionStatus_(value) {
+  const status = String(value || "")
+    .normalize("NFKC")
+    .trim();
+
+  if (
+    status === "受付中" ||
+    status === "受付可" ||
+    status === "受付可能" ||
+    status === "有効"
+  ) {
+    return "受付中";
+  }
+
+  if (
+    status === "受付停止中" ||
+    status === "受付停止" ||
+    status === "停止" ||
+    status === "削除済み" ||
+    status === "非表示"
+  ) {
+    return "受付停止中";
+  }
+
+  return "";
+}
+
+function normalizeAndroidSupportStatus_(value, existingValue) {
+  const normalized = extractAndroidSupportStatus_(value);
+
+  if (normalized) {
+    return normalized;
+  }
+
+  return extractAndroidSupportStatus_(existingValue) || "非対応";
+}
+
+function extractAndroidSupportStatus_(value) {
+  const status = String(value || "")
+    .normalize("NFKC")
+    .trim()
+    .split(":")[0]
+    .trim();
+
+  if (status === "店舗対応可" || status === "店頭対応可") {
+    return "店舗対応可";
+  }
+
+  if (
+    status === "外注必要" ||
+    status === "委託対応" ||
+    status === "外注対応"
+  ) {
+    return "外注必要";
+  }
+
+  if (status === "非対応") {
+    return "非対応";
+  }
+
+  return "";
+}
+
 function switchMasterItemToRow_(item) {
   return [
     item.sortOrder || "",
@@ -1099,6 +1273,53 @@ function getDataRows_(sheet) {
         return String(value || "").trim();
       },
     };
+  });
+}
+
+function getHeaderIndexes_(sheet) {
+  const lastColumn = Math.max(sheet.getLastColumn(), 1);
+  const headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
+  const indexes = {};
+
+  headers.forEach(function(header, index) {
+    const text = String(header || "").trim();
+
+    if (text && indexes[text] === undefined) {
+      indexes[text] = index;
+    }
+  });
+
+  return indexes;
+}
+
+function getRowObjectByHeaders_(sheet, rowNumber, headers) {
+  const lastColumn = Math.max(sheet.getLastColumn(), 1);
+  const rowValues = sheet
+    .getRange(rowNumber, 1, 1, lastColumn)
+    .getValues()[0];
+  const headerIndexes = getHeaderIndexes_(sheet);
+  const result = {};
+
+  headers.forEach(function(header) {
+    const index = headerIndexes[header];
+    result[header] =
+      index === undefined || rowValues[index] === undefined
+        ? ""
+        : rowValues[index];
+  });
+
+  return result;
+}
+
+function writeRowByHeaders_(sheet, rowNumber, valuesByHeader) {
+  const headerIndexes = getHeaderIndexes_(sheet);
+
+  Object.keys(valuesByHeader).forEach(function(header) {
+    const index = headerIndexes[header];
+
+    if (index !== undefined) {
+      sheet.getRange(rowNumber, index + 1).setValue(valuesByHeader[header]);
+    }
   });
 }
 

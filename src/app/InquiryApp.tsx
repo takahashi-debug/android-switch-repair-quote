@@ -489,7 +489,10 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
   const title = isSwitch ? "Switch修理見積り" : "Android修理見積り";
 
   const androidRows = useMemo(
-    () => [...masterData.priceMaster].sort(compareSortOrder),
+    () =>
+      masterData.priceMaster
+        .filter((item) => !isInactiveReceptionStatus(item.receptionStatus))
+        .sort(compareSortOrder),
     [masterData.priceMaster],
   );
 
@@ -2559,9 +2562,14 @@ function MasterManagementModal({
   const [repairItemSearch, setRepairItemSearch] = useState("");
   const [feedback, setFeedback] = useState<MasterFeedback | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
 
   const androidRows = useMemo(
-    () => [...data.priceMaster].sort(compareSortOrder),
+    () =>
+      data.priceMaster
+        .filter((item) => !isInactiveReceptionStatus(item.receptionStatus))
+        .sort(compareSortOrder),
     [data.priceMaster],
   );
   const androidManufacturers = useMemo(
@@ -2579,14 +2587,58 @@ function MasterManagementModal({
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape" && !saving) {
+      if (event.key === "Escape" && !saving && !deleting) {
+        if (deleteConfirmationOpen) {
+          setDeleteConfirmationOpen(false);
+          return;
+        }
         onClose();
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose, saving]);
+  }, [deleteConfirmationOpen, deleting, onClose, saving]);
+
+  async function deleteAndroidItem() {
+    if (role !== "admin" || !androidForm.rowNumber) {
+      setFeedback({ tone: "error", message: "管理者権限が必要です。" });
+      return;
+    }
+
+    setDeleting(true);
+    setFeedback({ tone: "muted", message: "削除中..." });
+
+    try {
+      await postMasterAction("deleteAndroidMasterItem", {
+        role,
+        storeName,
+        loginEmail,
+        rowNumber: androidForm.rowNumber,
+        manufacturer: androidForm.manufacturer,
+        modelName: androidForm.modelName,
+        modelNumber: androidForm.modelNumber,
+      });
+      await onSaved();
+      setAndroidForm(createEmptyAndroidMasterForm());
+      setDeleteConfirmationOpen(false);
+      setFeedback({
+        tone: "success",
+        message: "登録機種を削除しました。見積もり候補には表示されません。",
+      });
+    } catch (error) {
+      console.error(error);
+      setFeedback({
+        tone: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "削除に失敗しました。通信状況を確認して再度お試しください。",
+      });
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   async function submitMasterChange() {
     const validation = validateMasterForm({
@@ -2688,7 +2740,7 @@ function MasterManagementModal({
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6"
       onClick={() => {
-        if (!saving) {
+        if (!saving && !deleting && !deleteConfirmationOpen) {
           onClose();
         }
       }}
@@ -2707,7 +2759,7 @@ function MasterManagementModal({
           <button
             type="button"
             onClick={onClose}
-            disabled={saving}
+            disabled={saving || deleting}
             className="min-h-11 shrink-0 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
           >
             閉じる
@@ -2842,8 +2894,76 @@ function MasterManagementModal({
               </div>
             </MasterSection>
           </div>
+          {activeTab === "Android" &&
+          androidMode === "既存データ変更" &&
+          role === "admin" &&
+          Boolean(androidForm.rowNumber) ? (
+            <section className="mt-5 grid min-w-0 gap-3 rounded-lg border border-red-200 bg-red-50 p-4">
+              <div>
+                <h3 className="text-sm font-bold text-red-900">危険な操作</h3>
+                <p className="mt-1 text-sm leading-6 text-red-700">
+                  行は残したまま受付状態を「受付停止中」に変更します。
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmationOpen(true)}
+                disabled={saving || deleting}
+                className="min-h-12 w-full rounded-md bg-red-700 px-4 text-sm font-bold text-white transition hover:bg-red-800 disabled:cursor-not-allowed disabled:bg-red-300 sm:w-auto sm:justify-self-start"
+              >
+                {deleting ? "削除中..." : "この機種を削除"}
+              </button>
+            </section>
+          ) : null}
         </div>
       </section>
+      {deleteConfirmationOpen ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 px-4 py-6"
+          onClick={() => {
+            if (!deleting) setDeleteConfirmationOpen(false);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-android-title"
+            className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl sm:p-6"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="delete-android-title" className="text-lg font-bold text-slate-950">
+              この登録機種を削除しますか？
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-slate-700">
+              削除後は見積もり候補に表示されなくなります。スプレッドシート上の行は残り、受付状態が「受付停止中」に変更されます。
+            </p>
+            <dl className="mt-4 grid gap-2 rounded-md bg-slate-50 p-4 text-sm">
+              <div><dt className="inline font-bold">メーカー：</dt><dd className="inline">{androidForm.manufacturer || "-"}</dd></div>
+              <div><dt className="inline font-bold">機種名：</dt><dd className="inline">{androidForm.modelName || "-"}</dd></div>
+              <div><dt className="inline font-bold">型番：</dt><dd className="inline">{androidForm.modelNumber || "-"}</dd></div>
+              <div><dt className="inline font-bold">行番号：</dt><dd className="inline">{androidForm.rowNumber}</dd></div>
+            </dl>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={deleteAndroidItem}
+                disabled={deleting}
+                className="min-h-12 rounded-md bg-red-700 px-4 text-sm font-bold text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:bg-red-300"
+              >
+                {deleting ? "削除中..." : "削除する"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmationOpen(false)}
+                disabled={deleting}
+                className="min-h-12 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+              >
+                キャンセル
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -2881,8 +3001,12 @@ function AndroidMasterPanel({
     [rows],
   );
   const modelOptions = useMemo(
-    () => createAndroidModelOptions(rows, selectedManufacturer, search),
-    [rows, search, selectedManufacturer],
+    () => createAndroidModelOptions(rows, selectedManufacturer),
+    [rows, selectedManufacturer],
+  );
+  const searchResults = useMemo(
+    () => searchAndroidMasterRows(rows, search),
+    [rows, search],
   );
   const candidateRows = useMemo(
     () => getAndroidMasterCandidateRows(rows, selectedManufacturer, selectedModelKey),
@@ -2938,6 +3062,7 @@ function AndroidMasterPanel({
           modelOptions={modelOptions}
           selectedModelKey={selectedModelKey}
           search={search}
+          searchResults={searchResults}
           candidateRows={candidateRows}
           selectedRowNumber={form.rowNumber}
           onManufacturerChange={(manufacturer) => {
@@ -2952,8 +3077,11 @@ function AndroidMasterPanel({
           }}
           onSearchChange={(value) => {
             onSearchChange(value);
-            setSelectedModelKey("");
-            onFormChange(createEmptyAndroidMasterForm());
+          }}
+          onSearchResultSelect={(item) => {
+            setSelectedManufacturer(item.manufacturer);
+            setSelectedModelKey(normalizeModelName(item.modelName));
+            onSelect(item);
           }}
           onSelect={onSelect}
         />
@@ -3084,11 +3212,13 @@ function AndroidExistingDataSelector({
   modelOptions,
   selectedModelKey,
   search,
+  searchResults,
   candidateRows,
   selectedRowNumber,
   onManufacturerChange,
   onModelChange,
   onSearchChange,
+  onSearchResultSelect,
   onSelect,
 }: {
   manufacturers: string[];
@@ -3096,11 +3226,13 @@ function AndroidExistingDataSelector({
   modelOptions: AndroidMasterModelOption[];
   selectedModelKey: string;
   search: string;
+  searchResults: AndroidPriceMasterItem[];
   candidateRows: AndroidPriceMasterItem[];
   selectedRowNumber?: number;
   onManufacturerChange: (manufacturer: string) => void;
   onModelChange: (modelKey: string) => void;
   onSearchChange: (search: string) => void;
+  onSearchResultSelect: (item: AndroidPriceMasterItem) => void;
   onSelect: (item: AndroidPriceMasterItem) => void;
 }) {
   return (
@@ -3108,6 +3240,39 @@ function AndroidExistingDataSelector({
       <p className="text-sm font-semibold leading-6 text-slate-600">
         メーカー、機種、登録データを順に選択すると編集フォームが表示されます。
       </p>
+      <Field label="機種名・型番で検索" requirement="任意">
+        <div className="grid min-w-0 gap-2">
+          <input
+            value={search}
+            placeholder="機種名または型番で検索"
+            onChange={(event) => onSearchChange(event.target.value)}
+            className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+          />
+          <p className="text-xs font-semibold leading-5 text-slate-500">
+            メーカー未選択でも検索できます。
+          </p>
+          {normalizeAndroidModelSearchText(search) ? (
+            searchResults.length > 0 ? (
+              <div className="grid max-h-72 min-w-0 gap-1 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1">
+                {searchResults.map((item) => (
+                  <button
+                    key={item.rowNumber}
+                    type="button"
+                    onClick={() => onSearchResultSelect(item)}
+                    className="min-h-11 min-w-0 rounded-md px-3 py-2 text-left text-sm font-semibold leading-6 text-slate-700 transition hover:bg-blue-50 hover:text-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  >
+                    {formatAndroidMasterSearchResultLabel(item)}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-md border border-dashed border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-500">
+                該当する機種がありません。
+              </p>
+            )
+          ) : null}
+        </div>
+      </Field>
       <Field label="メーカーを選択" step="STEP 1" requirement="必須">
         <select
           value={selectedManufacturer}
@@ -3121,19 +3286,6 @@ function AndroidExistingDataSelector({
             </option>
           ))}
         </select>
-      </Field>
-      <Field label="機種検索" step="STEP 2" requirement="任意">
-        <input
-          value={search}
-          disabled={!selectedManufacturer}
-          placeholder={
-            selectedManufacturer
-              ? "機種名・型番で絞り込み"
-              : "メーカーを選択してください"
-          }
-          onChange={(event) => onSearchChange(event.target.value)}
-          className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-        />
       </Field>
       <Field label="機種を選択" step="STEP 2" requirement="必須">
         <select
@@ -5387,14 +5539,11 @@ function filterMasterRows<T>(
 function createAndroidModelOptions(
   rows: AndroidPriceMasterItem[],
   manufacturer: string,
-  search: string,
 ): AndroidMasterModelOption[] {
   if (!manufacturer) {
     return [];
   }
 
-  const query = normalizeSearchText(search);
-  const modelQuery = normalizeModelName(search);
   const options = new Map<string, AndroidMasterModelOption>();
 
   rows.forEach((item) => {
@@ -5407,23 +5556,6 @@ function createAndroidModelOptions(
       return;
     }
 
-    if (query || modelQuery) {
-      const searchText = normalizeSearchText(
-        `${item.modelName} ${item.modelNumber}`,
-      );
-      const normalizedModelText = [
-        normalizeModelName(item.modelName),
-        normalizeModelName(item.modelNumber),
-      ].join(" ");
-
-      if (
-        (query && !searchText.includes(query)) &&
-        (modelQuery && !normalizedModelText.includes(modelQuery))
-      ) {
-        return;
-      }
-    }
-
     options.set(key, {
       key,
       label: item.modelName,
@@ -5431,6 +5563,29 @@ function createAndroidModelOptions(
   });
 
   return Array.from(options.values());
+}
+
+function searchAndroidMasterRows(
+  rows: AndroidPriceMasterItem[],
+  search: string,
+) {
+  const query = normalizeAndroidModelSearchText(search);
+  const queryTokens = getAndroidModelSearchTokens(search);
+
+  if (!query) {
+    return [];
+  }
+
+  return rows.filter((item) => {
+    const target = createAndroidModelSearchTarget(
+      `${item.manufacturer} ${item.modelName} ${item.modelNumber}`,
+    );
+
+    return (
+      target.includes(query) ||
+      queryTokens.every((token) => target.includes(token))
+    );
+  });
 }
 
 function getAndroidMasterCandidateRows(
@@ -5447,6 +5602,14 @@ function getAndroidMasterCandidateRows(
       item.manufacturer === manufacturer &&
       normalizeModelName(item.modelName) === modelKey,
   );
+}
+
+function formatAndroidMasterSearchResultLabel(item: AndroidPriceMasterItem) {
+  return [
+    item.modelName,
+    item.manufacturer,
+    item.modelNumber || "型番なし",
+  ].join(" / ");
 }
 
 function formatAndroidMasterCandidateLabel(item: AndroidPriceMasterItem) {
@@ -5555,30 +5718,31 @@ function createDynamicAndroidRepairDefinitions(
   );
   const definitions = new Map<string, DynamicAndroidRepairDefinition>();
 
-  repairItemMaster.forEach((item) => {
-    const label = stringValue(item.displayName || item.repairItemName);
-    const key = normalizeRepairItemName(label);
+  repairItemMaster
+    .filter((item) => !isInactiveReceptionStatus(item.receptionStatus))
+    .forEach((item) => {
+      const label = stringValue(item.displayName || item.repairItemName);
+      const key = normalizeRepairItemName(label);
 
-    if (
-      item.category !== "Android" ||
-      !key ||
-      fixedLabels.has(key) ||
-      item.receptionStatus === "受付停止" ||
-      item.repairStatus === "非対応" ||
-      definitions.has(key)
-    ) {
-      return;
-    }
+      if (
+        item.category !== "Android" ||
+        !key ||
+        fixedLabels.has(key) ||
+        item.repairStatus === "非対応" ||
+        definitions.has(key)
+      ) {
+        return;
+      }
 
-    definitions.set(key, {
-      key,
-      label,
-      repairItemName: item.repairItemName,
-      standardPrice: item.standardPrice,
-      note: item.note,
-      receptionStatus: item.receptionStatus,
+      definitions.set(key, {
+        key,
+        label,
+        repairItemName: item.repairItemName,
+        standardPrice: item.standardPrice,
+        note: item.note,
+        receptionStatus: item.receptionStatus,
+      });
     });
-  });
 
   return Array.from(definitions.values());
 }
@@ -5606,7 +5770,14 @@ function createAvailableDynamicAndroidRepairDefinitions(
 }
 
 function isInactiveReceptionStatus(value: string) {
-  return value === "受付停止" || value === "非対応";
+  const normalized = value.trim();
+
+  return (
+    normalized === "受付停止" ||
+    normalized === "受付停止中" ||
+    normalized === "非対応" ||
+    normalized === "削除済み"
+  );
 }
 
 function createAndroidModelRepairSettingForms(
