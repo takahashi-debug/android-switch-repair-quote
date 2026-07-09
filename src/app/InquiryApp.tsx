@@ -3386,13 +3386,7 @@ function SwitchMasterPanel({
     [activeRows],
   );
   const addEstimatedRepairTypeOptions = useMemo(
-    () =>
-      uniqueValues(
-        [...activeRows]
-          .sort(compareSortOrder)
-          .filter((item) => item.symptom === form.symptom)
-          .map((item) => item.estimatedRepairType),
-      ),
+    () => createSwitchEstimatedRepairTypeOptions(activeRows, form.symptom),
     [activeRows, form.symptom],
   );
   const symptomOptions = useMemo(
@@ -3492,13 +3486,23 @@ function SwitchMasterPanel({
                 <div className="grid min-w-0 gap-2">
                   <select
                     value={form.symptom}
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      const symptom = event.target.value;
+                      const estimatedRepairTypeOptions =
+                        createSwitchEstimatedRepairTypeOptions(
+                          activeRows,
+                          symptom,
+                        );
+
                       onFormChange((current) => ({
                         ...current,
-                        symptom: event.target.value,
-                        estimatedRepairType: "",
-                      }))
-                    }
+                        symptom,
+                        estimatedRepairType:
+                          estimatedRepairTypeOptions.length === 1
+                            ? estimatedRepairTypeOptions[0]
+                            : "",
+                      }));
+                    }}
                     className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
                   >
                     <option value="">症状を選択してください</option>
@@ -3551,7 +3555,9 @@ function SwitchMasterPanel({
                     {form.symptom &&
                     addEstimatedRepairTypeOptions.length === 0
                       ? "この症状に紐づく修理内容がありません。"
-                      : "選択した症状に紐づく修理内容から選択してください。"}
+                      : addEstimatedRepairTypeOptions.length === 1
+                        ? "選択した症状に紐づく修理内容を自動入力しました。"
+                        : "選択した症状に紐づく修理内容から選択してください。"}
                   </p>
                 </div>
               </Field>
@@ -3701,17 +3707,33 @@ function RepairItemMasterPanel({
 }) {
   const [selectedCategory, setSelectedCategory] = useState("");
   const [selectedRepairItemKey, setSelectedRepairItemKey] = useState("");
-  const categoryOptions = useMemo(
-    () => createRepairItemCategoryOptions(rows),
+  const activeRows = useMemo(
+    () =>
+      [...rows]
+        .filter((item) => !isInactiveReceptionStatus(item.receptionStatus))
+        .sort(compareRepairItemMasterRows),
     [rows],
   );
+  const categoryOptions = useMemo(
+    () => createRepairItemCategoryOptions(activeRows),
+    [activeRows],
+  );
   const repairItemOptions = useMemo(
-    () => createRepairItemNameOptions(rows, selectedCategory, search),
-    [rows, search, selectedCategory],
+    () => createRepairItemNameOptions(activeRows, selectedCategory),
+    [activeRows, selectedCategory],
   );
   const candidateRows = useMemo(
-    () => getRepairItemCandidateRows(rows, selectedCategory, selectedRepairItemKey),
-    [rows, selectedCategory, selectedRepairItemKey],
+    () =>
+      getRepairItemCandidateRows(
+        activeRows,
+        selectedCategory,
+        selectedRepairItemKey,
+      ),
+    [activeRows, selectedCategory, selectedRepairItemKey],
+  );
+  const searchResults = useMemo(
+    () => searchRepairItemMasterRows(activeRows, search),
+    [activeRows, search],
   );
   const showRepairItemForm = mode === "修理メニュー追加" || Boolean(form.rowNumber);
 
@@ -3748,12 +3770,12 @@ function RepairItemMasterPanel({
           repairItemOptions={repairItemOptions}
           selectedRepairItemKey={selectedRepairItemKey}
           search={search}
+          searchResults={searchResults}
           candidateRows={candidateRows}
           selectedRowNumber={form.rowNumber}
           onCategoryChange={(category) => {
             setSelectedCategory(category);
             setSelectedRepairItemKey("");
-            onSearchChange("");
             onFormChange(createEmptyRepairItemForm());
           }}
           onRepairItemChange={(repairItemKey) => {
@@ -3762,8 +3784,15 @@ function RepairItemMasterPanel({
           }}
           onSearchChange={(value) => {
             onSearchChange(value);
-            setSelectedRepairItemKey("");
-            onFormChange(createEmptyRepairItemForm());
+          }}
+          onSearchResultSelect={(item) => {
+            setSelectedCategory(item.category);
+            setSelectedRepairItemKey(
+              normalizeRepairItemName(
+                item.repairItemName || item.displayName,
+              ),
+            );
+            onSelect(item);
           }}
           onSelect={onSelect}
         />
@@ -3809,11 +3838,13 @@ function RepairItemExistingDataSelector({
   repairItemOptions,
   selectedRepairItemKey,
   search,
+  searchResults,
   candidateRows,
   selectedRowNumber,
   onCategoryChange,
   onRepairItemChange,
   onSearchChange,
+  onSearchResultSelect,
   onSelect,
 }: {
   categories: string[];
@@ -3821,11 +3852,13 @@ function RepairItemExistingDataSelector({
   repairItemOptions: RepairItemNameOption[];
   selectedRepairItemKey: string;
   search: string;
+  searchResults: RepairItemMasterItem[];
   candidateRows: RepairItemMasterItem[];
   selectedRowNumber?: number;
   onCategoryChange: (category: string) => void;
   onRepairItemChange: (repairItemKey: string) => void;
   onSearchChange: (search: string) => void;
+  onSearchResultSelect: (item: RepairItemMasterItem) => void;
   onSelect: (item: RepairItemMasterItem) => void;
 }) {
   return (
@@ -3833,6 +3866,46 @@ function RepairItemExistingDataSelector({
       <p className="text-sm font-semibold leading-6 text-slate-600">
         カテゴリ、修理メニュー、登録データを順に選択すると編集フォームが表示されます。
       </p>
+      <Field label="修理メニュー名・表示名で検索" requirement="任意">
+        <div className="grid min-w-0 gap-2">
+          <input
+            value={search}
+            placeholder="修理メニュー名・表示名・対象機種カテゴリ・備考で検索"
+            onChange={(event) => onSearchChange(event.target.value)}
+            className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+          />
+          <p className="text-xs font-semibold leading-5 text-slate-500">
+            カテゴリ未選択でも検索できます。
+          </p>
+          {normalizeRepairItemSearchText(search) ? (
+            searchResults.length > 0 ? (
+              <div className="grid max-h-72 min-w-0 gap-1 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1">
+                {searchResults.map((item) => (
+                  <button
+                    key={item.rowNumber}
+                    type="button"
+                    onClick={() => onSearchResultSelect(item)}
+                    className="grid min-h-11 min-w-0 gap-0.5 rounded-md px-3 py-2 text-left transition hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  >
+                    <span className="truncate text-sm font-semibold leading-6 text-slate-700">
+                      {item.displayName || item.repairItemName} / {item.category}
+                    </span>
+                    <span className="truncate text-xs font-semibold leading-5 text-slate-500">
+                      対象機種カテゴリ：
+                      {item.targetModelCategory || "指定なし"} /{" "}
+                      {item.priceType || "価格種別なし"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-md border border-dashed border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-500">
+                該当する修理メニューがありません。
+              </p>
+            )
+          ) : null}
+        </div>
+      </Field>
       <Field label="カテゴリを選択" step="STEP 1" requirement="必須">
         <select
           value={selectedCategory}
@@ -3847,19 +3920,6 @@ function RepairItemExistingDataSelector({
           ))}
         </select>
       </Field>
-      <Field label="修理メニュー検索" step="STEP 2" requirement="任意">
-        <input
-          value={search}
-          disabled={!selectedCategory}
-          placeholder={
-            selectedCategory
-              ? "修理メニュー名・表示名・対象機種カテゴリ・備考で検索"
-              : "先にカテゴリを選択してください"
-          }
-          onChange={(event) => onSearchChange(event.target.value)}
-          className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-        />
-      </Field>
       <Field label="修理メニューを選択" step="STEP 2" requirement="必須">
         <select
           value={selectedRepairItemKey}
@@ -3869,7 +3929,7 @@ function RepairItemExistingDataSelector({
         >
           <option value="">
             {!selectedCategory
-              ? "先にカテゴリを選択してください"
+              ? "カテゴリを選択してください"
               : repairItemOptions.length === 0
                 ? "該当する修理メニューがありません"
                 : "修理メニューを選択してください"}
@@ -5912,13 +5972,11 @@ function formatAndroidMasterCandidateLabel(item: AndroidPriceMasterItem) {
 function createRepairItemNameOptions(
   rows: RepairItemMasterItem[],
   category: string,
-  search: string,
 ): RepairItemNameOption[] {
   if (!category) {
     return [];
   }
 
-  const query = normalizeRepairItemSearchText(search);
   const options = new Map<string, RepairItemNameOption>();
 
   rows.forEach((item) => {
@@ -5933,16 +5991,6 @@ function createRepairItemNameOptions(
       return;
     }
 
-    if (query) {
-      const searchText = normalizeRepairItemSearchText(
-        `${item.repairItemName} ${item.displayName} ${item.targetModelCategory} ${item.note}`,
-      );
-
-      if (!searchText.includes(query)) {
-        return;
-      }
-    }
-
     options.set(key, {
       key,
       label: item.repairItemName || item.displayName,
@@ -5950,6 +5998,29 @@ function createRepairItemNameOptions(
   });
 
   return Array.from(options.values());
+}
+
+function searchRepairItemMasterRows(
+  rows: RepairItemMasterItem[],
+  search: string,
+) {
+  const query = normalizeRepairItemSearchText(search);
+
+  if (!query) {
+    return [];
+  }
+
+  return rows.filter((item) =>
+    normalizeRepairItemSearchText(
+      [
+        item.category,
+        item.repairItemName,
+        item.displayName,
+        item.targetModelCategory,
+        item.note,
+      ].join(" "),
+    ).includes(query),
+  );
 }
 
 function createRepairItemCategoryOptions(rows: RepairItemMasterItem[]) {
@@ -5993,6 +6064,19 @@ function formatRepairItemStandardPrice(value: number | string) {
   const text = stringValue(value);
 
   return text ? `${text}円` : "価格なし";
+}
+
+function compareRepairItemMasterRows(
+  a: RepairItemMasterItem,
+  b: RepairItemMasterItem,
+) {
+  return (
+    compareSortOrder(a, b) ||
+    (a.repairItemName || a.displayName).localeCompare(
+      b.repairItemName || b.displayName,
+      "ja",
+    )
+  );
 }
 
 function createDynamicAndroidRepairDefinitions(
@@ -8301,6 +8385,22 @@ function uniqueValues(values: string[]) {
   return Array.from(new Set(values.map(stringValue).filter(Boolean)));
 }
 
+function createSwitchEstimatedRepairTypeOptions(
+  rows: SwitchEstimateMasterItem[],
+  symptom: string,
+) {
+  return uniqueValues(
+    [...rows]
+      .sort(compareSortOrder)
+      .filter(
+        (item) =>
+          !isInactiveReceptionStatus(item.receptionStatus) &&
+          item.symptom === symptom,
+      )
+      .map((item) => item.estimatedRepairType),
+  );
+}
+
 function androidMakerMatches(selectedMaker: string, rowMaker: string) {
   const selected = stringValue(selectedMaker);
   const row = stringValue(rowMaker);
@@ -8317,7 +8417,10 @@ function normalizeSearchText(value: string) {
 }
 
 function normalizeRepairItemName(value: string) {
-  const compact = normalizeSearchText(value).replace(/[\s_\-‐‑‒–—ー]/g, "");
+  const compact = convertHiraganaToKatakana(normalizeSearchText(value)).replace(
+    /[\s_\-‐‑‒–—ー]/g,
+    "",
+  );
 
   return compact
     .replace(/battery/g, "バッテリー")
