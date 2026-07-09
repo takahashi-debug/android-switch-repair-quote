@@ -3363,9 +3363,59 @@ function SwitchMasterPanel({
   onSelect: (item: SwitchEstimateMasterItem) => void;
   onFormChange: React.Dispatch<React.SetStateAction<SwitchMasterForm>>;
 }) {
-  const filteredRows = filterMasterRows(rows, search, (item) =>
-    `${item.modelName} ${item.symptom} ${item.estimatedRepairType}`,
+  const [selectedModelName, setSelectedModelName] = useState("");
+  const [selectedSymptom, setSelectedSymptom] = useState("");
+  const activeRows = useMemo(
+    () =>
+      rows.filter(
+        (item) => !isInactiveReceptionStatus(item.receptionStatus),
+      ),
+    [rows],
   );
+  const modelOptions = useMemo(
+    () => uniqueValues(activeRows.map((item) => item.modelName)),
+    [activeRows],
+  );
+  const addSymptomOptions = useMemo(
+    () =>
+      uniqueValues(
+        [...activeRows]
+          .sort(compareSortOrder)
+          .map((item) => item.symptom),
+      ),
+    [activeRows],
+  );
+  const symptomOptions = useMemo(
+    () =>
+      uniqueValues(
+        activeRows
+          .filter((item) => item.modelName === selectedModelName)
+          .map((item) => item.symptom),
+      ),
+    [activeRows, selectedModelName],
+  );
+  const candidateRows = useMemo(
+    () =>
+      activeRows.filter(
+        (item) =>
+          item.modelName === selectedModelName &&
+          item.symptom === selectedSymptom,
+      ),
+    [activeRows, selectedModelName, selectedSymptom],
+  );
+  const searchResults = useMemo(
+    () => searchSwitchMasterRows(activeRows, search),
+    [activeRows, search],
+  );
+  const showSwitchForm = mode === "新規項目追加" || Boolean(form.rowNumber);
+
+  useEffect(() => {
+    if (mode !== "既存データ変更") {
+      setSelectedModelName("");
+      setSelectedSymptom("");
+      onSearchChange("");
+    }
+  }, [mode, onSearchChange]);
 
   return (
     <div className="grid min-w-0 gap-5">
@@ -3379,34 +3429,197 @@ function SwitchMasterPanel({
         Switchの修理メニューを追加・変更します。
       </p>
       {mode === "既存データ変更" ? (
-        <MasterSearchSelect
-          title="登録済みメニューを変更"
-          description="変更するSwitchの登録済みメニューを検索して選択します。"
+        <SwitchExistingDataSelector
+          modelOptions={modelOptions}
+          selectedModelName={selectedModelName}
+          symptomOptions={symptomOptions}
+          selectedSymptom={selectedSymptom}
           search={search}
-          rows={filteredRows}
+          searchResults={searchResults}
+          candidateRows={candidateRows}
           selectedRowNumber={form.rowNumber}
-          placeholder="機種名・症状・想定修理内容で検索"
-          getLabel={(item) =>
-            `${item.modelName} / ${item.symptom} / ${item.estimatedRepairType}`
-          }
           onSearchChange={onSearchChange}
+          onModelChange={(modelName) => {
+            setSelectedModelName(modelName);
+            setSelectedSymptom("");
+            onFormChange(createEmptySwitchMasterForm());
+          }}
+          onSymptomChange={(symptom) => {
+            setSelectedSymptom(symptom);
+            const firstCandidate = activeRows.find(
+              (item) =>
+                item.modelName === selectedModelName &&
+                item.symptom === symptom,
+            );
+            if (firstCandidate) {
+              onSelect(firstCandidate);
+            } else {
+              onFormChange(createEmptySwitchMasterForm());
+            }
+          }}
+          onSearchResultSelect={(item) => {
+            setSelectedModelName(item.modelName);
+            setSelectedSymptom(item.symptom);
+            onSelect(item);
+          }}
           onSelect={onSelect}
         />
       ) : null}
-      <MasterSection title={mode === "新規項目追加" ? "修理メニューを追加" : "内容を編集"}>
-        <MasterFormGrid>
-          <MasterTextInput label="並び順" value={form.sortOrder} onChange={(value) => onFormChange((current) => ({ ...current, sortOrder: value }))} />
-          <MasterTextInput label="機種名" required value={form.modelName} onChange={(value) => onFormChange((current) => ({ ...current, modelName: value }))} />
-          <MasterTextInput label="型番" value={form.modelNumber} onChange={(value) => onFormChange((current) => ({ ...current, modelNumber: value }))} />
-          <MasterTextInput label="症状" required value={form.symptom} onChange={(value) => onFormChange((current) => ({ ...current, symptom: value }))} />
-          <MasterTextInput label="想定修理内容" required value={form.estimatedRepairType} onChange={(value) => onFormChange((current) => ({ ...current, estimatedRepairType: value }))} />
-          <MasterTextInput label="修理費用" required value={form.repairPrice} onChange={(value) => onFormChange((current) => ({ ...current, repairPrice: value }))} />
-          <MasterSelectInput label="対応区分" required value={form.repairStatus} options={supportStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, repairStatus: value }))} />
-          <MasterSelectInput label="受付状態" required value={form.receptionStatus} options={receptionStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, receptionStatus: value }))} />
-          <MasterTextArea label="備考" value={form.note} onChange={(value) => onFormChange((current) => ({ ...current, note: value }))} />
-        </MasterFormGrid>
-      </MasterSection>
+      {showSwitchForm ? (
+        <MasterSection
+          title={
+            mode === "新規項目追加"
+              ? "修理メニューを追加"
+              : "STEP 4 内容を編集"
+          }
+        >
+          <MasterFormGrid>
+            <MasterTextInput label="並び順" value={form.sortOrder} onChange={(value) => onFormChange((current) => ({ ...current, sortOrder: value }))} />
+            <MasterTextInput label="機種名" required value={form.modelName} onChange={(value) => onFormChange((current) => ({ ...current, modelName: value }))} />
+            <MasterTextInput label="型番" value={form.modelNumber} onChange={(value) => onFormChange((current) => ({ ...current, modelNumber: value }))} />
+            {mode === "新規項目追加" ? (
+              <Field label="症状" requirement="必須">
+                <div className="grid min-w-0 gap-2">
+                  <select
+                    value={form.symptom}
+                    onChange={(event) => onFormChange((current) => ({ ...current, symptom: event.target.value }))}
+                    className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                  >
+                    <option value="">症状を選択してください</option>
+                    {addSymptomOptions.map((symptom) => (
+                      <option key={symptom} value={symptom}>
+                        {symptom}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs font-semibold leading-5 text-slate-500">
+                    既存登録済みの症状から選択してください。
+                  </p>
+                </div>
+              </Field>
+            ) : (
+              <MasterTextInput label="症状" required value={form.symptom} onChange={(value) => onFormChange((current) => ({ ...current, symptom: value }))} />
+            )}
+            <MasterTextInput label="想定修理内容" required value={form.estimatedRepairType} onChange={(value) => onFormChange((current) => ({ ...current, estimatedRepairType: value }))} />
+            <MasterTextInput label="修理費用" required value={form.repairPrice} onChange={(value) => onFormChange((current) => ({ ...current, repairPrice: value }))} />
+            <MasterSelectInput label="対応区分" required value={form.repairStatus} options={supportStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, repairStatus: value }))} />
+            <MasterSelectInput label="受付状態" required value={form.receptionStatus} options={receptionStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, receptionStatus: value }))} />
+            <MasterTextArea label="備考" value={form.note} onChange={(value) => onFormChange((current) => ({ ...current, note: value }))} />
+          </MasterFormGrid>
+        </MasterSection>
+      ) : (
+        <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm font-semibold leading-6 text-slate-500">
+          機種、症状、登録データを選択すると編集フォームが表示されます。
+        </p>
+      )}
     </div>
+  );
+}
+
+function SwitchExistingDataSelector({
+  modelOptions,
+  selectedModelName,
+  symptomOptions,
+  selectedSymptom,
+  search,
+  searchResults,
+  candidateRows,
+  selectedRowNumber,
+  onModelChange,
+  onSymptomChange,
+  onSearchChange,
+  onSearchResultSelect,
+  onSelect,
+}: {
+  modelOptions: string[];
+  selectedModelName: string;
+  symptomOptions: string[];
+  selectedSymptom: string;
+  search: string;
+  searchResults: SwitchEstimateMasterItem[];
+  candidateRows: SwitchEstimateMasterItem[];
+  selectedRowNumber?: number;
+  onModelChange: (modelName: string) => void;
+  onSymptomChange: (symptom: string) => void;
+  onSearchChange: (search: string) => void;
+  onSearchResultSelect: (item: SwitchEstimateMasterItem) => void;
+  onSelect: (item: SwitchEstimateMasterItem) => void;
+}) {
+  return (
+    <section className="grid min-w-0 gap-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+      <Field label="機種名・型番・症状で検索" requirement="任意">
+        <div className="grid min-w-0 gap-2">
+          <input
+            value={search}
+            placeholder="機種名・型番・症状・修理内容で検索"
+            onChange={(event) => onSearchChange(event.target.value)}
+            className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+          />
+          <p className="text-xs font-semibold leading-5 text-slate-500">
+            機種名、型番、症状、修理内容から検索できます。
+          </p>
+          {normalizeSearchText(search) ? (
+            searchResults.length > 0 ? (
+              <div className="grid max-h-72 min-w-0 gap-1 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1">
+                {searchResults.map((item) => (
+                  <button
+                    key={item.rowNumber}
+                    type="button"
+                    onClick={() => onSearchResultSelect(item)}
+                    className="min-w-0 rounded-md px-3 py-2 text-left transition hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  >
+                    <span className="block break-words text-sm font-bold leading-6 text-slate-800">
+                      {item.modelName} / {item.symptom}
+                    </span>
+                    <span className="block break-words text-xs font-semibold leading-5 text-slate-500">
+                      {item.modelNumber || "型番なし"} / {item.estimatedRepairType}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-md border border-dashed border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-500">
+                該当する登録データがありません。
+              </p>
+            )
+          ) : null}
+        </div>
+      </Field>
+      <p className="text-sm font-semibold leading-6 text-slate-600">
+        検索を使わない場合は、機種、症状、登録データを順に選択してください。
+      </p>
+      <Field label="機種を選択" step="STEP 1" requirement="必須">
+        <select value={selectedModelName} onChange={(event) => onModelChange(event.target.value)} className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100">
+          <option value="">機種を選択してください</option>
+          {modelOptions.map((modelName) => <option key={modelName} value={modelName}>{modelName}</option>)}
+        </select>
+      </Field>
+      <Field label="症状を選択" step="STEP 2" requirement="必須">
+        <select value={selectedSymptom} disabled={!selectedModelName || symptomOptions.length === 0} onChange={(event) => onSymptomChange(event.target.value)} className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400">
+          <option value="">{!selectedModelName ? "先に機種を選択してください" : "症状を選択してください"}</option>
+          {symptomOptions.map((symptom) => <option key={symptom} value={symptom}>{symptom}</option>)}
+        </select>
+      </Field>
+      <Field label="変更する登録データを選択" step="STEP 3" requirement="必須">
+        <select
+          value={selectedRowNumber ?? ""}
+          disabled={!selectedSymptom || candidateRows.length === 0}
+          onChange={(event) => {
+            const rowNumber = Number(event.target.value);
+            const item = candidateRows.find((row) => row.rowNumber === rowNumber);
+            if (item) onSelect(item);
+          }}
+          className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+        >
+          <option value="">{!selectedSymptom ? "先に症状を選択してください" : "変更するデータを選択してください"}</option>
+          {candidateRows.map((item) => (
+            <option key={item.rowNumber} value={item.rowNumber}>
+              {item.modelNumber || "型番なし"} / {item.estimatedRepairType}
+            </option>
+          ))}
+        </select>
+      </Field>
+    </section>
   );
 }
 
@@ -5586,6 +5799,23 @@ function searchAndroidMasterRows(
       queryTokens.every((token) => target.includes(token))
     );
   });
+}
+
+function searchSwitchMasterRows(
+  rows: SwitchEstimateMasterItem[],
+  search: string,
+) {
+  const query = normalizeSearchText(search);
+
+  if (!query) {
+    return [];
+  }
+
+  return rows.filter((item) =>
+    normalizeSearchText(
+      `${item.modelName} ${item.modelNumber} ${item.symptom} ${item.estimatedRepairType}`,
+    ).includes(query),
+  );
 }
 
 function getAndroidMasterCandidateRows(
