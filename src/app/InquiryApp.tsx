@@ -3385,6 +3385,16 @@ function SwitchMasterPanel({
       ),
     [activeRows],
   );
+  const addEstimatedRepairTypeOptions = useMemo(
+    () =>
+      uniqueValues(
+        [...activeRows]
+          .sort(compareSortOrder)
+          .filter((item) => item.symptom === form.symptom)
+          .map((item) => item.estimatedRepairType),
+      ),
+    [activeRows, form.symptom],
+  );
   const symptomOptions = useMemo(
     () =>
       uniqueValues(
@@ -3482,7 +3492,13 @@ function SwitchMasterPanel({
                 <div className="grid min-w-0 gap-2">
                   <select
                     value={form.symptom}
-                    onChange={(event) => onFormChange((current) => ({ ...current, symptom: event.target.value }))}
+                    onChange={(event) =>
+                      onFormChange((current) => ({
+                        ...current,
+                        symptom: event.target.value,
+                        estimatedRepairType: "",
+                      }))
+                    }
                     className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
                   >
                     <option value="">症状を選択してください</option>
@@ -3500,7 +3516,48 @@ function SwitchMasterPanel({
             ) : (
               <MasterTextInput label="症状" required value={form.symptom} onChange={(value) => onFormChange((current) => ({ ...current, symptom: value }))} />
             )}
-            <MasterTextInput label="想定修理内容" required value={form.estimatedRepairType} onChange={(value) => onFormChange((current) => ({ ...current, estimatedRepairType: value }))} />
+            {mode === "新規項目追加" ? (
+              <Field label="想定修理内容" requirement="必須">
+                <div className="grid min-w-0 gap-2">
+                  <select
+                    value={form.estimatedRepairType}
+                    disabled={
+                      !form.symptom ||
+                      addEstimatedRepairTypeOptions.length === 0
+                    }
+                    onChange={(event) =>
+                      onFormChange((current) => ({
+                        ...current,
+                        estimatedRepairType: event.target.value,
+                      }))
+                    }
+                    className="min-h-12 w-full max-w-full min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-base outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+                  >
+                    <option value="">
+                      {form.symptom
+                        ? "想定修理内容を選択してください"
+                        : "先に症状を選択してください"}
+                    </option>
+                    {addEstimatedRepairTypeOptions.map((estimatedRepairType) => (
+                      <option
+                        key={estimatedRepairType}
+                        value={estimatedRepairType}
+                      >
+                        {estimatedRepairType}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs font-semibold leading-5 text-slate-500">
+                    {form.symptom &&
+                    addEstimatedRepairTypeOptions.length === 0
+                      ? "この症状に紐づく修理内容がありません。"
+                      : "選択した症状に紐づく修理内容から選択してください。"}
+                  </p>
+                </div>
+              </Field>
+            ) : (
+              <MasterTextInput label="想定修理内容" required value={form.estimatedRepairType} onChange={(value) => onFormChange((current) => ({ ...current, estimatedRepairType: value }))} />
+            )}
             <MasterTextInput label="修理費用" required value={form.repairPrice} onChange={(value) => onFormChange((current) => ({ ...current, repairPrice: value }))} />
             <MasterSelectInput label="対応区分" required value={form.repairStatus} options={supportStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, repairStatus: value }))} />
             <MasterSelectInput label="受付状態" required value={form.receptionStatus} options={receptionStatusOptions} onChange={(value) => onFormChange((current) => ({ ...current, receptionStatus: value }))} />
