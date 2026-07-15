@@ -528,9 +528,12 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
   const androidCandidates = useMemo(() => {
     const query = normalizeAndroidModelSearchText(modelSearch);
     const queryTokens = getAndroidModelSearchTokens(modelSearch);
+    const isSearching = Boolean(modelSearch.trim());
     const rows = androidRows.filter((item) => {
       const matchesMaker =
-        !form.maker || androidMakerMatches(form.maker, item.manufacturer);
+        isSearching ||
+        !form.maker ||
+        androidMakerMatches(form.maker, item.manufacturer);
       const target = createAndroidModelSearchTarget(
         [
           item.manufacturer,
@@ -962,6 +965,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
       return;
     }
 
+    setModelSearch("");
     setSelectedAndroidModelLabel(candidate.label);
     setValidationError("");
     setForm((current) => ({
@@ -971,6 +975,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
       modelNumber: candidate.modelNumber,
       repairType: "",
       symptom: "",
+      selectedOptionKeys: [],
     }));
   }
 
