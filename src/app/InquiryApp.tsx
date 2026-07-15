@@ -497,7 +497,10 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
   );
 
   const switchRows = useMemo(
-    () => [...masterData.switchEstimateMaster].sort(compareSortOrder),
+    () =>
+      masterData.switchEstimateMaster
+        .filter((item) => !isInactiveReceptionStatus(item.receptionStatus))
+        .sort(compareSortOrder),
     [masterData.switchEstimateMaster],
   );
 
@@ -2563,7 +2566,9 @@ function MasterManagementModal({
   const [feedback, setFeedback] = useState<MasterFeedback | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
+  const [deleteConfirmationTarget, setDeleteConfirmationTarget] = useState<
+    "android" | "switch" | null
+  >(null);
 
   const androidRows = useMemo(
     () =>
@@ -2588,8 +2593,8 @@ function MasterManagementModal({
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape" && !saving && !deleting) {
-        if (deleteConfirmationOpen) {
-          setDeleteConfirmationOpen(false);
+        if (deleteConfirmationTarget) {
+          setDeleteConfirmationTarget(null);
           return;
         }
         onClose();
@@ -2598,7 +2603,7 @@ function MasterManagementModal({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [deleteConfirmationOpen, deleting, onClose, saving]);
+  }, [deleteConfirmationTarget, deleting, onClose, saving]);
 
   async function deleteAndroidItem() {
     if (role !== "admin" || !androidForm.rowNumber) {
@@ -2621,10 +2626,53 @@ function MasterManagementModal({
       });
       await onSaved();
       setAndroidForm(createEmptyAndroidMasterForm());
-      setDeleteConfirmationOpen(false);
+      setDeleteConfirmationTarget(null);
       setFeedback({
         tone: "success",
         message: "登録機種を削除しました。見積もり候補には表示されません。",
+      });
+    } catch (error) {
+      console.error(error);
+      setFeedback({
+        tone: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "削除に失敗しました。通信状況を確認して再度お試しください。",
+      });
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  async function deleteSwitchItem() {
+    if (role !== "admin" || !switchForm.rowNumber) {
+      setFeedback({ tone: "error", message: "管理者権限が必要です。" });
+      return;
+    }
+
+    setDeleting(true);
+    setFeedback({ tone: "muted", message: "削除中..." });
+
+    try {
+      await postMasterAction("deleteSwitchMasterItem", {
+        role,
+        storeName,
+        loginEmail,
+        rowNumber: switchForm.rowNumber,
+        modelName: switchForm.modelName,
+        modelNumber: switchForm.modelNumber,
+        symptom: switchForm.symptom,
+        estimatedRepairType: switchForm.estimatedRepairType,
+      });
+      await onSaved();
+      setSwitchForm(createEmptySwitchMasterForm());
+      setSwitchSearch("");
+      setDeleteConfirmationTarget(null);
+      setFeedback({
+        tone: "success",
+        message:
+          "Switchメニューを削除しました。受付状態を受付停止中に変更し、見積もり候補には表示されません。",
       });
     } catch (error) {
       console.error(error);
@@ -2740,7 +2788,7 @@ function MasterManagementModal({
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6"
       onClick={() => {
-        if (!saving && !deleting && !deleteConfirmationOpen) {
+        if (!saving && !deleting && !deleteConfirmationTarget) {
           onClose();
         }
       }}
@@ -2907,7 +2955,7 @@ function MasterManagementModal({
               </div>
               <button
                 type="button"
-                onClick={() => setDeleteConfirmationOpen(true)}
+                onClick={() => setDeleteConfirmationTarget("android")}
                 disabled={saving || deleting}
                 className="min-h-12 w-full rounded-md bg-red-700 px-4 text-sm font-bold text-white transition hover:bg-red-800 disabled:cursor-not-allowed disabled:bg-red-300 sm:w-auto sm:justify-self-start"
               >
@@ -2915,13 +2963,34 @@ function MasterManagementModal({
               </button>
             </section>
           ) : null}
+          {activeTab === "Switch" &&
+          switchMode === "既存データ変更" &&
+          role === "admin" &&
+          Boolean(switchForm.rowNumber) ? (
+            <section className="mt-5 grid min-w-0 gap-3 rounded-lg border border-red-200 bg-red-50 p-4">
+              <div>
+                <h3 className="text-sm font-bold text-red-900">危険な操作</h3>
+                <p className="mt-1 text-sm leading-6 text-red-700">
+                  行は残したまま受付状態を「受付停止中」に変更します。
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmationTarget("switch")}
+                disabled={saving || deleting}
+                className="min-h-12 w-full rounded-md bg-red-700 px-4 text-sm font-bold text-white transition hover:bg-red-800 disabled:cursor-not-allowed disabled:bg-red-300 sm:w-auto sm:justify-self-start"
+              >
+                {deleting ? "削除中..." : "このSwitchメニューを削除"}
+              </button>
+            </section>
+          ) : null}
         </div>
       </section>
-      {deleteConfirmationOpen ? (
+      {deleteConfirmationTarget === "android" ? (
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 px-4 py-6"
           onClick={() => {
-            if (!deleting) setDeleteConfirmationOpen(false);
+            if (!deleting) setDeleteConfirmationTarget(null);
           }}
         >
           <section
@@ -2954,7 +3023,55 @@ function MasterManagementModal({
               </button>
               <button
                 type="button"
-                onClick={() => setDeleteConfirmationOpen(false)}
+                onClick={() => setDeleteConfirmationTarget(null)}
+                disabled={deleting}
+                className="min-h-12 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+              >
+                キャンセル
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+      {deleteConfirmationTarget === "switch" ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 px-4 py-6"
+          onClick={() => {
+            if (!deleting) setDeleteConfirmationTarget(null);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-switch-title"
+            className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl sm:p-6"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="delete-switch-title" className="text-lg font-bold text-slate-950">
+              このSwitchメニューを削除しますか？
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-slate-700">
+              削除後は見積もり候補に表示されなくなります。スプレッドシート上の行は残り、受付状態が「受付停止中」に変更されます。
+            </p>
+            <dl className="mt-4 grid gap-2 rounded-md bg-slate-50 p-4 text-sm">
+              <div><dt className="inline font-bold">機種名：</dt><dd className="inline">{switchForm.modelName || "-"}</dd></div>
+              <div><dt className="inline font-bold">型番：</dt><dd className="inline">{switchForm.modelNumber || "-"}</dd></div>
+              <div><dt className="inline font-bold">症状：</dt><dd className="inline">{switchForm.symptom || "-"}</dd></div>
+              <div><dt className="inline font-bold">想定修理内容：</dt><dd className="inline">{switchForm.estimatedRepairType || "-"}</dd></div>
+              <div><dt className="inline font-bold">行番号：</dt><dd className="inline">{switchForm.rowNumber}</dd></div>
+            </dl>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={deleteSwitchItem}
+                disabled={deleting}
+                className="min-h-12 rounded-md bg-red-700 px-4 text-sm font-bold text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:bg-red-300"
+              >
+                {deleting ? "削除中..." : "削除する"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmationTarget(null)}
                 disabled={deleting}
                 className="min-h-12 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
               >

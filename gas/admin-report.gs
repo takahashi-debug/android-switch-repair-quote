@@ -232,6 +232,10 @@ function doPost(e) {
       return createJsonResponse(updateSwitchMasterItem(payload));
     }
 
+    if (action === "deleteSwitchMasterItem") {
+      return createJsonResponse(deleteSwitchMasterItem(payload));
+    }
+
     if (action === "addRepairItem") {
       return createJsonResponse(addRepairItem(payload));
     }
@@ -685,6 +689,55 @@ function updateSwitchMasterItem(payload) {
     ok: true,
     rowNumber: rowNumber,
     message: "Switchマスターを更新しました。",
+  };
+}
+
+function deleteSwitchMasterItem(payload) {
+  const adminError = getAdminRoleError_(payload);
+  if (adminError) return adminError;
+
+  const sheet = getRequiredSheet_(SWITCH_MASTER_SHEET_NAME);
+  const rowNumber = normalizeRowNumber_(payload.rowNumber);
+
+  if (rowNumber > sheet.getLastRow()) {
+    throw new Error("削除対象の行が見つかりません。");
+  }
+
+  const beforeValue = getRowObjectByHeaders_(
+    sheet,
+    rowNumber,
+    SWITCH_MASTER_HEADERS,
+  );
+  const headerIndexes = getHeaderIndexes_(sheet);
+  const receptionStatusColumn = headerIndexes["受付状態"];
+
+  if (receptionStatusColumn === undefined) {
+    throw new Error("受付状態列が見つからないため削除できません。");
+  }
+
+  sheet.getRange(rowNumber, receptionStatusColumn + 1).setValue("受付停止中");
+
+  const afterValue = getRowObjectByHeaders_(
+    sheet,
+    rowNumber,
+    SWITCH_MASTER_HEADERS,
+  );
+
+  appendMasterChangeHistory_(payload, {
+    operationType: "Switchメニュー削除",
+    category: "Switch",
+    targetSheet: SWITCH_MASTER_SHEET_NAME,
+    rowNumber: rowNumber,
+    beforeValue: beforeValue,
+    afterValue: afterValue,
+    result: "成功",
+  });
+
+  return {
+    success: true,
+    ok: true,
+    message: "Switchメニューを削除しました。",
+    rowNumber: rowNumber,
   };
 }
 
