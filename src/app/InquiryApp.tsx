@@ -138,6 +138,7 @@ type FormState = {
   switchOptionSelections: SwitchOptionSelectionState;
   orderStatus: OrderStatus;
   selectedOptionKeys: string[];
+  selectedAndroidRepairKeys: string[];
 };
 
 type SwitchSelectedModel = {
@@ -194,6 +195,19 @@ type NormalizedOption = {
   price: number;
 };
 
+type AndroidRepairMenuItem = {
+  key: string;
+  label: string;
+  price: number | null;
+  priceLabel: string;
+  supportStatus: string;
+  isUnsupported: boolean;
+  isPriceIncludedInTotal: boolean;
+  note: string;
+  guidanceText: string;
+  powerFailureEstimateMinimum?: number;
+};
+
 type EstimateQuote = {
   modelName: string;
   modelNumber: string;
@@ -239,6 +253,7 @@ type ConfirmedEstimate = {
   selectedOptions: NormalizedOption[];
   switchRepairLines: SwitchEstimateLine[];
   switchOptionLines: SwitchOptionLine[];
+  unsupportedAndroidRepairLabels: string[];
 };
 
 const categories: InquiryCategory[] = ["Android", "Switch"];
@@ -268,6 +283,32 @@ const repairItemModeLabels: Record<RepairItemMode, string> = {
   既存メニュー変更: "既存メニューを変更",
 };
 const supportStatusOptions = ["店舗対応可", "要確認", "委託対応", "非対応"];
+const ANDROID_BOARD_REPAIR = {
+  price: 33000,
+  priceLabel: "税込 33,000円〜",
+  leadTime: "1週間〜10日程度",
+} as const;
+const ANDROID_POWER_FAILURE_MENU_KEY = "android-power-failure";
+const ANDROID_DONOR_REPAIR_MENU_KEY = "android-donor-repair";
+const ANDROID_WATER_DAMAGE_GUIDANCE = [
+  "水没洗浄は税込 9,680円です。",
+  "こちらは分解・内部洗浄・腐食確認・乾燥作業の基本料金となり、復旧可否に関わらず発生します。",
+  "洗浄後に部品交換や基板修理が必要な場合は、別途費用が発生します。",
+  "水没端末は復旧を保証するものではなく、状態によっては修理不可となる場合があります。",
+  "作業時間は端末の状態によって異なるため、確認後にご案内いたします。",
+].join("\n");
+const ANDROID_DONOR_REPAIR_GUIDANCE = [
+  "ドナー修理は、同型または互換性のある端末から必要な部品を移植して修理を行う作業です。",
+  "", "■基本作業料金", "税込 15,000円",
+  "", "■ドナー端末代", "機種や状態、在庫状況によって異なるため、確認後にご案内いたします。",
+  "", "お支払いいただく修理料金は、基本作業料金とドナー端末代の合計となります。",
+  "", "ドナー端末の在庫がない場合は、取り寄せが必要となります。",
+  "", "■ドナー端末の納期", "ドナー端末の取り寄せには、3日〜1週間程度かかります。",
+  "", "■作業時間", "ドナー端末入荷後、3時間程度で作業完了予定です。",
+  "", "移植する部品の内容や端末の故障状態によっては、ドナー端末を用意しても修理できない場合があります。",
+  "", "正式な修理内容・料金・納期は、必要なドナー端末と修理端末の状態を確認したうえでご案内いたします。",
+  "", "データは基本そのままで作業しますが、データの保証はできかねるため、操作可能な場合は事前のバックアップをお願いいたします。",
+].join("\n");
 const manualPriceStatusOption = "料金を手動設定";
 const androidAdditionalRepairStatusOptions = [
   "店舗対応可",
@@ -304,7 +345,7 @@ const preferredAndroidMakers = [
 
 const ANDROID_FIXED_REPAIR_PRICES = {
   battery: 11000,
-  chargePort: 13200,
+  chargePort: 16500,
   cameraLens: 11000,
   sleepButton: 15000,
   volumeButton: 15000,
@@ -345,7 +386,7 @@ const ANDROID_OUTSOURCE_REPAIR_PRICE = 33000;
 const OTHER_ANDROID_MANUFACTURER = "その他";
 const OTHER_ANDROID_MODEL_FALLBACK = "その他メーカー端末";
 const ANDROID_MODEL_CANDIDATE_LIMIT = 30;
-const OTHER_ANDROID_SCREEN_PRICE = "パーツ原価 + 11,000円";
+const OTHER_ANDROID_SCREEN_PRICE = "パーツ原価 + 税込 11,000円";
 const OTHER_ANDROID_SCREEN_NOTE = "パーツ原価を確認してください。";
 const OTHER_ANDROID_CONFIRM_NOTE = "対応可否と部品状況を確認してください。";
 const ANDROID_DATA_GUIDE =
@@ -419,7 +460,7 @@ const androidRepairDefinitions: AndroidRepairDefinition[] = [
   { key: "chargePort", label: "充電口修理", statusKey: "chargePortStatus" },
   {
     key: "cameraLens",
-    label: "カメラレンズ交換",
+    label: "リアカメラレンズ修理",
     statusKey: "cameraLensStatus",
   },
   {
@@ -429,6 +470,31 @@ const androidRepairDefinitions: AndroidRepairDefinition[] = [
   },
   { key: "volumeButton", label: "音量ボタン修理", statusKey: "volumeButtonStatus" },
 ];
+
+const androidBasicRepairAliases = {
+  "画面修理": ["画面修理"],
+  "バッテリー交換": ["バッテリー交換", "バッテリー修理"],
+  "充電口修理": ["充電口修理", "充電口交換", "充電不良修理"],
+  "リアカメラレンズ修理": [
+    "リアカメラレンズ修理",
+    "カメラレンズ修理",
+    "カメラレンズ交換",
+    "リアカメラレンズ交換",
+  ],
+  "スリープボタン修理": ["スリープボタン修理", "電源ボタン修理"],
+  "音量ボタン修理": ["音量ボタン修理", "ボリュームボタン修理"],
+  "スピーカー修理": [
+    "スピーカー修理",
+    "スピーカー交換",
+    "スピーカー交換修理",
+  ],
+} as const;
+
+const normalizedAndroidBasicRepairAliases = new Map(
+  Object.entries(androidBasicRepairAliases).flatMap(([label, aliases]) =>
+    aliases.map((alias) => [normalizeRepairItemName(alias), label] as const),
+  ),
+);
 
 function createInitialForm(category: InquiryCategory = "Android"): FormState {
   return {
@@ -443,6 +509,7 @@ function createInitialForm(category: InquiryCategory = "Android"): FormState {
     switchOptionSelections: {},
     orderStatus: "検討",
     selectedOptionKeys: [],
+    selectedAndroidRepairKeys: [],
   };
 }
 
@@ -604,26 +671,14 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
     return [selectedAndroidCandidate, ...androidCandidates];
   }, [androidCandidates, selectedAndroidCandidate]);
 
-  const androidRepairTypes = useMemo(() => {
-    const dynamicRepairDefinitions = createAvailableDynamicAndroidRepairDefinitions(
-      masterData.repairItemMaster,
-      masterData.androidModelRepairSettings,
+  const androidRepairMenus = useMemo(() => {
+    if (!isOtherAndroidManufacturer && !selectedAndroidModel) return [];
+    return createAndroidRepairMenus({
       selectedAndroidModel,
-    );
-    const repairTypes = [
-      ...androidRepairDefinitions.map((item) => item.label),
-      ...dynamicRepairDefinitions.map((item) => item.label),
-    ];
-
-    if (isOtherAndroidManufacturer) {
-      return repairTypes;
-    }
-
-    if (!selectedAndroidModel) {
-      return [];
-    }
-
-    return repairTypes;
+      isOtherManufacturer: isOtherAndroidManufacturer,
+      repairItemMaster: masterData.repairItemMaster,
+      androidModelRepairSettings: masterData.androidModelRepairSettings,
+    });
   }, [
     isOtherAndroidManufacturer,
     masterData.androidModelRepairSettings,
@@ -643,44 +698,10 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
     return switchModels.filter((modelName) => !selectedModelNames.has(modelName));
   }, [form.switchSelectedModels, switchModels]);
 
-  const androidQuote = useMemo(() => {
-    if (isOtherAndroidManufacturer && form.repairType) {
-      return getOtherAndroidRepairEstimate(
-        form.repairType,
-        masterData.repairItemMaster,
-      );
-    }
-
-    if (!selectedAndroidModel || !form.repairType) {
-      return undefined;
-    }
-
-    const fixedDefinition = androidRepairDefinitions.find(
-      (item) => item.label === form.repairType,
-    );
-
-    if (fixedDefinition) {
-      return getAndroidRepairEstimate(selectedAndroidModel, fixedDefinition);
-    }
-
-    const dynamicDefinition = createDynamicAndroidRepairDefinitions(
-      masterData.repairItemMaster,
-    ).find((item) => item.label === form.repairType);
-
-    return dynamicDefinition
-      ? getDynamicAndroidRepairEstimate(
-          selectedAndroidModel,
-          dynamicDefinition,
-          masterData.androidModelRepairSettings,
-        )
-      : undefined;
-  }, [
-    form.repairType,
-    isOtherAndroidManufacturer,
-    masterData.androidModelRepairSettings,
-    masterData.repairItemMaster,
-    selectedAndroidModel,
-  ]);
+  const selectedAndroidRepairMenus = useMemo(
+    () => androidRepairMenus.filter((menu) => form.selectedAndroidRepairKeys.includes(menu.key)),
+    [androidRepairMenus, form.selectedAndroidRepairKeys],
+  );
 
   const draftEstimate = useMemo(
     () =>
@@ -689,10 +710,10 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
         selectedOptions,
         selectedAndroidModel,
         switchRows,
-        androidQuote,
+        androidRepairMenus: selectedAndroidRepairMenus,
       }),
     [
-      androidQuote,
+      selectedAndroidRepairMenus,
       form,
       optionTotal,
       selectedAndroidModel,
@@ -708,7 +729,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
         selectedOptions: [],
         selectedAndroidModel: undefined,
         switchRows: [],
-        androidQuote: undefined,
+        androidRepairMenus: [],
       }),
     [form.category],
   );
@@ -957,6 +978,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
       repairType: "",
       symptom: "",
       selectedOptionKeys: [],
+      selectedAndroidRepairKeys: [],
     }));
   }
 
@@ -976,6 +998,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
       repairType: "",
       symptom: "",
       selectedOptionKeys: [],
+      selectedAndroidRepairKeys: [],
     }));
   }
 
@@ -993,6 +1016,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
       repairType: "",
       symptom: "",
       selectedOptionKeys: [],
+      selectedAndroidRepairKeys: [],
     }));
   }
 
@@ -1002,7 +1026,32 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
       ...current,
       modelName,
       modelNumber: "",
+      repairType: "",
+      selectedAndroidRepairKeys: [],
     }));
+  }
+
+  function toggleAndroidRepairMenu(menuKey: string) {
+    setValidationError("");
+    setForm((current) => {
+      const isPowerFailureMenu = menuKey === ANDROID_POWER_FAILURE_MENU_KEY;
+      const isSelected = current.selectedAndroidRepairKeys.includes(menuKey);
+      const selectedAndroidRepairKeys = isPowerFailureMenu
+        ? isSelected
+          ? []
+          : [ANDROID_POWER_FAILURE_MENU_KEY]
+        : toggleStringValue(
+            current.selectedAndroidRepairKeys.filter(
+              (key) => key !== ANDROID_POWER_FAILURE_MENU_KEY,
+            ),
+            menuKey,
+          );
+      const repairType = androidRepairMenus
+        .filter((menu) => selectedAndroidRepairKeys.includes(menu.key))
+        .map((menu) => menu.label)
+        .join("、");
+      return { ...current, selectedAndroidRepairKeys, repairType };
+    });
   }
 
   function addSwitchModel(modelName: string) {
@@ -1171,7 +1220,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
       selectedOptions,
       selectedAndroidModel,
       switchRows,
-      androidQuote,
+      androidRepairMenus: selectedAndroidRepairMenus,
     });
 
     setValidationError("");
@@ -1649,27 +1698,37 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
                   </Field>
 
                   <Field
-                    label="修理内容を選択"
+                    label="修理メニューを選択してください"
                     step="STEP 3"
                     requirement="必須"
-                    completed={Boolean(form.repairType)}
+                    completed={form.selectedAndroidRepairKeys.length > 0}
                     guide={
-                      !form.repairType
-                        ? "修理内容を選択してください。"
+                      form.selectedAndroidRepairKeys.length === 0
+                        ? "修理メニューを1つ以上選択してください。"
                         : undefined
                     }
                   >
-                    <ButtonGrid
-                      options={androidRepairTypes}
-                      value={form.repairType}
-                      disabled={!form.modelName && !isOtherAndroidManufacturer}
-                      onChange={(value) => {
-                        setValidationError("");
-                        setForm((current) => ({ ...current, repairType: value }));
-                      }}
-                      columns={2}
-                      activeTone="green"
-                    />
+                    <div className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3">
+                      {androidRepairMenus.map((menu) => {
+                        const isSelected =
+                          form.selectedAndroidRepairKeys.includes(menu.key);
+                        return (
+                          <button
+                            key={menu.key}
+                            type="button"
+                            aria-pressed={isSelected}
+                            onClick={() => toggleAndroidRepairMenu(menu.key)}
+                            className={`min-h-16 min-w-0 rounded-lg border px-4 py-2.5 text-left text-sm transition focus:outline-none focus:ring-4 focus:ring-blue-100 ${
+                              isSelected
+                                ? "border-blue-700 bg-blue-700 text-white shadow-sm hover:bg-blue-800"
+                                : "border-slate-300 bg-white text-slate-800 hover:border-blue-400 hover:bg-blue-50"
+                            }`}
+                          >
+                            <span className="block font-bold">{menu.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </Field>
                 </>
               )}
@@ -1709,7 +1768,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
                               key={option.key}
                               checked={selection.selected}
                               label={option.label}
-                              price={`+${option.price.toLocaleString("ja-JP")}円`}
+                              price={`+ ${formatTaxIncludedYen(option.price)}`}
                               quantity={selection.quantity}
                               maxQuantity={switchBodyQuantity}
                               onChange={() => toggleOption(option.key)}
@@ -1738,7 +1797,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
                         key={option.key}
                         checked={form.selectedOptionKeys.includes(option.key)}
                         label={option.label}
-                        price={`+${option.price.toLocaleString("ja-JP")}円`}
+                        price={`+ ${formatTaxIncludedYen(option.price)}`}
                         onChange={() => toggleOption(option.key)}
                       />
                     ))}
@@ -1784,6 +1843,9 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
             selectedOptions={displayEstimate.selectedOptions}
             switchRepairLines={displayEstimate.switchRepairLines}
             switchOptionLines={displayEstimate.switchOptionLines}
+            unsupportedAndroidRepairLabels={
+              displayEstimate.unsupportedAndroidRepairLabels
+            }
             canSave={confirmedEstimate !== null && !hasUnconfirmedChanges}
             saveFeedback={saveFeedback}
             hasUnconfirmedChanges={hasUnconfirmedChanges}
@@ -1840,6 +1902,7 @@ function EstimatePanel({
   selectedOptions,
   switchRepairLines,
   switchOptionLines,
+  unsupportedAndroidRepairLabels,
   canSave,
   saveFeedback,
   hasUnconfirmedChanges,
@@ -1871,6 +1934,7 @@ function EstimatePanel({
   selectedOptions: NormalizedOption[];
   switchRepairLines: SwitchEstimateLine[];
   switchOptionLines: SwitchOptionLine[];
+  unsupportedAndroidRepairLabels: string[];
   canSave: boolean;
   saveFeedback: SaveFeedback | null;
   hasUnconfirmedChanges: boolean;
@@ -1883,6 +1947,13 @@ function EstimatePanel({
   onStockCheckApply: (stockCheck: SwitchStockCheckByLine) => void;
 }) {
   const isSwitch = form.category === "Switch";
+  const isAndroidPowerFailureOnly =
+    !isSwitch &&
+    form.selectedAndroidRepairKeys.length === 1 &&
+    form.selectedAndroidRepairKeys[0] === ANDROID_POWER_FAILURE_MENU_KEY;
+  const includesAndroidDonorRepair =
+    !isSwitch &&
+    form.selectedAndroidRepairKeys.includes(ANDROID_DONOR_REPAIR_MENU_KEY);
   const [stockCheckOpen, setStockCheckOpen] = useState(false);
   const showSwitchStockCheck =
     currentCategory === "Switch" && isSwitch && hasConfirmedEstimate;
@@ -1969,11 +2040,15 @@ function EstimatePanel({
           <InfoRow label="機種名" value={quote.modelName} />
           <InfoRow label="型番" value={quote.modelNumber} />
           <InfoRow label="修理内容" value={quote.repairType} />
-          <InfoRow label="お見積り金額" value={estimateText} strong />
+          <InfoRow
+            label={isAndroidPowerFailureOnly || includesAndroidDonorRepair ? "概算お見積り金額" : "お見積り金額"}
+            value={estimateText}
+            strong
+          />
         </dl>
       )}
 
-      {hasConfirmedEstimate && staffNotes.length > 0 ? (
+      {hasConfirmedEstimate && !isAndroidPowerFailureOnly && staffNotes.length > 0 ? (
         <section className="mt-4 min-w-0 overflow-hidden rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
           <h3 className="font-bold">▼ スタッフ向け注意</h3>
           <div className="mt-2 min-w-0 whitespace-pre-wrap break-words">
@@ -2019,6 +2094,22 @@ function EstimatePanel({
             <pre className="mt-3 min-h-48 max-w-full overflow-hidden whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-4 font-sans text-base leading-7 text-slate-800">
               {customerMessage}
             </pre>
+            {!isSwitch && unsupportedAndroidRepairLabels.length > 0 ? (
+              <section className="mt-3 min-w-0 overflow-hidden rounded-lg border border-yellow-300 bg-yellow-50 p-4 text-sm leading-6 text-yellow-950 dark:border-yellow-700 dark:bg-yellow-950 dark:text-yellow-100">
+                <h4 className="font-bold">スタッフ向けメモ</h4>
+                <div className="mt-2 min-w-0 break-words">
+                  <p>以下の修理は受付対象外です。</p>
+                  <ul className="mt-1">
+                    {unsupportedAndroidRepairLabels.map((label) => (
+                      <li key={label}>・{label}</li>
+                    ))}
+                  </ul>
+                  <p className="mt-2">
+                    お客様へドナー修理をご提案してください。
+                  </p>
+                </div>
+              </section>
+            ) : null}
           </section>
 
           <div className="mt-5 grid min-w-0 gap-3">
@@ -2391,7 +2482,7 @@ function AndroidUsageGuide() {
       <UsageGuideSection title="「その他」を選択した場合">
         <p>「その他」を選択した場合は、機種名を自由入力できます。</p>
         <p>
-          画面修理で価格マスターに登録がない場合は、パーツ原価 + 11,000円 の案内になります。
+          画面修理で価格マスターに登録がない場合は、パーツ原価 + 税込 11,000円 の案内になります。
         </p>
         <p>画面修理以外は、登録済みの共通料金で案内されます。</p>
       </UsageGuideSection>
@@ -5549,20 +5640,13 @@ function createEstimateResult({
   selectedOptions,
   selectedAndroidModel,
   switchRows,
-  androidQuote,
+  androidRepairMenus,
 }: {
   form: FormState;
   selectedOptions: NormalizedOption[];
   selectedAndroidModel: AndroidPriceMasterItem | undefined;
   switchRows: SwitchEstimateMasterItem[];
-  androidQuote:
-    | {
-        price: number | string | undefined;
-        status: string;
-        note: string;
-        receptionStatus: string;
-      }
-    | undefined;
+  androidRepairMenus: AndroidRepairMenuItem[];
 }): ConfirmedEstimate {
   const isSwitch = form.category === "Switch";
   const isOtherAndroidManufacturer =
@@ -5602,17 +5686,18 @@ function createEstimateResult({
             : form.modelNumber || selectedAndroidModel?.modelNumber || "未選択",
         symptom: "",
         repairType: form.repairType || "未選択",
-        price: androidQuote?.price,
-        status: androidQuote?.status || "",
-        note: androidQuote?.note || "",
-        receptionStatus: androidQuote?.receptionStatus || "",
+        price: sumAndroidRepairMenuPrices(androidRepairMenus),
+        status: uniqueValues(androidRepairMenus.map((menu) => menu.supportStatus)).join("、"),
+        note: uniqueValues(androidRepairMenus.map((menu) => menu.note).filter(Boolean)).join("\n"),
+        receptionStatus: "",
       };
   const estimateText =
     isSwitch
       ? formatSwitchTotalEstimate(switchTotal, switchHasVariable)
-      : quote.price === undefined
-        ? "価格マスター未登録"
-        : formatEstimate(quote.price, androidOptionTotal);
+      : androidRepairMenus.length === 1 &&
+          androidRepairMenus[0]?.key === ANDROID_POWER_FAILURE_MENU_KEY
+        ? getAndroidPowerFailureEstimate(androidRepairMenus)
+        : formatAndroidRepairEstimate(androidRepairMenus, androidOptionTotal);
   const customerMessage = isSwitch
     ? createSwitchCustomerMessage({
         form,
@@ -5621,11 +5706,9 @@ function createEstimateResult({
         total: switchTotal,
         hasVariablePrice: switchHasVariable,
       })
-    : createAndroidCustomerMessage({
+    : createAndroidMultipleRepairCustomerMessage({
         modelName: quote.modelName,
-        repairType: quote.repairType,
-        price: quote.price,
-        status: quote.status,
+        menus: androidRepairMenus,
         optionTotal: androidOptionTotal,
         isOtherManufacturer: isOtherAndroidManufacturer,
       });
@@ -5647,6 +5730,7 @@ function createEstimateResult({
         form.switchOptionSelections,
       ),
       selectedOptionKeys: [...form.selectedOptionKeys],
+      selectedAndroidRepairKeys: [...form.selectedAndroidRepairKeys],
     },
     quote,
     estimateText,
@@ -5655,6 +5739,11 @@ function createEstimateResult({
     selectedOptions: [...selectedOptions],
     switchRepairLines,
     switchOptionLines,
+    unsupportedAndroidRepairLabels: uniqueValues(
+      androidRepairMenus
+        .filter((menu) => menu.isUnsupported)
+        .map((menu) => menu.label),
+    ),
   };
 }
 
@@ -5678,6 +5767,13 @@ function createReservationCopy({
   const isSwitch = form.category === "Switch";
   const isOtherAndroidManufacturer =
     !isSwitch && form.maker === OTHER_ANDROID_MANUFACTURER;
+  const isAndroidPowerFailureOnly =
+    !isSwitch &&
+    form.selectedAndroidRepairKeys.length === 1 &&
+    form.selectedAndroidRepairKeys[0] === ANDROID_POWER_FAILURE_MENU_KEY;
+  const includesAndroidDonorRepair =
+    !isSwitch &&
+    form.selectedAndroidRepairKeys.includes(ANDROID_DONOR_REPAIR_MENU_KEY);
 
   if (isSwitch) {
     const switchReservationCopy = [
@@ -5721,15 +5817,27 @@ function createReservationCopy({
     `型番: ${quote.modelNumber}`,
     `修理内容: ${quote.repairType}`,
     `オプション: ${formatSelectedOptions(selectedOptions)}`,
-    `見積金額: ${estimateText}`,
+    `${isAndroidPowerFailureOnly || includesAndroidDonorRepair ? "概算見積金額" : "見積金額"}: ${estimateText}`,
   ];
 
-  if (!isOtherAndroidManufacturer || form.repairType !== "画面修理") {
+  if (
+    !isAndroidPowerFailureOnly &&
+    !includesAndroidDonorRepair &&
+    (!isOtherAndroidManufacturer || form.repairType !== "画面修理")
+  ) {
     androidReservationCopy.push(`対応区分: ${quote.status || "未選択"}`);
   }
 
   if (isOtherAndroidManufacturer && quote.note) {
     androidReservationCopy.push(`注意: ${quote.note}`);
+  }
+
+  if (includesAndroidDonorRepair) {
+    androidReservationCopy.push(
+      "料金内訳: 基本作業料金 税込 15,000円＋ドナー端末代（確認後にご案内）",
+      "ドナー端末の納期: 3日〜1週間程度",
+      "ドナー端末入荷後の作業時間: 3時間程度",
+    );
   }
 
   return androidReservationCopy.join("\n");
@@ -5826,10 +5934,24 @@ function createAdminReportEstimateSummary(estimate: ConfirmedEstimate) {
     ].join("\n");
   }
 
+  const includesDonorRepair = estimate.form.selectedAndroidRepairKeys.includes(
+    ANDROID_DONOR_REPAIR_MENU_KEY,
+  );
+  const isPowerFailureOnly =
+    estimate.form.selectedAndroidRepairKeys.length === 1 &&
+    estimate.form.selectedAndroidRepairKeys[0] === ANDROID_POWER_FAILURE_MENU_KEY;
+
   return [
     `機種: ${estimate.quote.modelName}`,
     `修理内容: ${estimate.quote.repairType}`,
-    `見積金額: ${estimate.estimateText}`,
+    `${isPowerFailureOnly || includesDonorRepair ? "概算見積金額" : "見積金額"}: ${estimate.estimateText}`,
+    ...(includesDonorRepair
+      ? [
+          "料金内訳: 基本作業料金 税込 15,000円＋ドナー端末代（確認後にご案内）",
+          "ドナー端末の納期: 3日〜1週間程度",
+          "ドナー端末入荷後の作業時間: 3時間程度",
+        ]
+      : []),
   ].join("\n");
 }
 
@@ -6204,11 +6326,6 @@ function compareRepairItemMasterRows(
 function createDynamicAndroidRepairDefinitions(
   repairItemMaster: RepairItemMasterItem[],
 ): DynamicAndroidRepairDefinition[] {
-  const fixedLabels = new Set(
-    androidRepairDefinitions.map((item) =>
-      normalizeRepairItemName(item.label),
-    ),
-  );
   const definitions = new Map<string, DynamicAndroidRepairDefinition>();
 
   repairItemMaster
@@ -6220,8 +6337,11 @@ function createDynamicAndroidRepairDefinitions(
       if (
         item.category !== "Android" ||
         !key ||
-        fixedLabels.has(key) ||
-        item.repairStatus === "非対応" ||
+        (isAndroidBasicRepairName(label) &&
+          !isAndroidSpeakerRepairName(label)) ||
+        (isAndroidBasicRepairName(item.repairItemName) &&
+          !isAndroidSpeakerRepairName(item.repairItemName)) ||
+        isInactiveAndroidRepairStatus(item.repairStatus) ||
         definitions.has(key)
       ) {
         return;
@@ -7569,20 +7689,20 @@ function formatSwitchRepairLine(line: SwitchEstimateLine) {
 }
 
 function formatSwitchOptionLine(line: SwitchOptionLine) {
-  return `${line.label}: ${line.price.toLocaleString("ja-JP")}円 × ${
+  return `${line.label}: ${formatTaxIncludedYen(line.price)} × ${
     line.quantity
-  }台 = ${line.lineTotal.toLocaleString("ja-JP")}円`;
+  }台 = ${formatTaxIncludedYen(line.lineTotal)}`;
 }
 
 function formatSwitchUnitPrice(value: number | string) {
   if (isSwitchAddablePrice(value)) {
     const price = typeof value === "number" ? value : parseSinglePriceString(value);
 
-    return `${(price ?? 0).toLocaleString("ja-JP")}円`;
+    return formatTaxIncludedYen(price ?? 0);
   }
 
   if (typeof value === "string" && isRangePrice(value)) {
-    return formatRangePrice(value);
+    return formatTaxIncludedRange(value);
   }
 
   return isConsultationPrice(value) ? "要相談" : String(value || "要相談");
@@ -7590,7 +7710,7 @@ function formatSwitchUnitPrice(value: number | string) {
 
 function formatSwitchRepairLinePrice(line: SwitchEstimateLine) {
   if (line.lineTotal !== undefined) {
-    return `${line.lineTotal.toLocaleString("ja-JP")}円`;
+    return formatTaxIncludedYen(line.lineTotal);
   }
 
   return formatSwitchUnitPrice(line.price);
@@ -7868,7 +7988,7 @@ function createSwitchCustomerMessage({
     (line) => line.isSimultaneousRepairPrice,
   );
   const simultaneousRepairGuide = hasSimultaneousRepairPrice
-    ? "コントローラー系の同時修理は、各端末ごとに2箇所目以降を1箇所につき1,000円（税込）で計算しています。"
+    ? "コントローラー系の同時修理は、各端末ごとに2箇所目以降を1箇所につき税込 1,000円で計算しています。"
     : "";
   const singleRepairLine = repairLines.length === 1 ? repairLines[0] : undefined;
   const optionGuide =
@@ -7985,7 +8105,7 @@ function formatSwitchCustomerOptionDetail(line: SwitchOptionLine) {
 }
 
 function formatSwitchCustomerRangePrice(value: string) {
-  return `${formatYen(value)}（税込）`;
+  return formatTaxIncludedRange(value);
 }
 
 function getAndroidRepairEstimate(
@@ -8006,6 +8126,16 @@ function getAndroidRepairEstimate(
       status,
       note: item.note,
       receptionStatus: item.receptionStatus,
+    };
+  }
+
+  if (definition.key === "chargePort") {
+    return {
+      repairType: definition.label,
+      price: ANDROID_FIXED_REPAIR_PRICES.chargePort,
+      status: "店舗対応可",
+      note: item.note,
+      receptionStatus: "",
     };
   }
 
@@ -8069,6 +8199,268 @@ function getAndroidRepairEstimate(
     note: item.note,
     receptionStatus: item.receptionStatus,
   };
+}
+
+function createAndroidRepairMenus({
+  selectedAndroidModel,
+  isOtherManufacturer,
+  repairItemMaster,
+  androidModelRepairSettings,
+}: {
+  selectedAndroidModel?: AndroidPriceMasterItem;
+  isOtherManufacturer: boolean;
+  repairItemMaster: RepairItemMasterItem[];
+  androidModelRepairSettings: AndroidModelRepairSettingItem[];
+}): AndroidRepairMenuItem[] {
+  const toMenu = (
+    key: string,
+    label: string,
+    estimate?: ReturnType<typeof getOtherAndroidRepairEstimate>,
+  ): AndroidRepairMenuItem => {
+    const isUnsupported =
+      estimate?.status === "非対応" ||
+      estimate?.price === "受付対象外" ||
+      stringValue(estimate?.receptionStatus) === "非対応";
+    const unavailable =
+      !estimate ||
+      isInactiveAndroidRepairStatus(estimate.status) ||
+      estimate.price === "受付対象外" ||
+      isInactiveReceptionStatus(estimate.receptionStatus);
+    const price = unavailable ? null : getAddableAndroidPrice(estimate.price);
+    return {
+      key,
+      label,
+      price,
+      priceLabel: price === null ? "要確認" : formatTaxIncludedYen(price),
+      supportStatus: unavailable ? "要確認" : estimate.status || "要確認",
+      isUnsupported,
+      isPriceIncludedInTotal: price !== null,
+      note: estimate?.note || "",
+      guidanceText: createAndroidRepairTimingGuidance(label, estimate?.status),
+    };
+  };
+
+  const fixedMenus = androidRepairDefinitions.map((definition) => {
+    const estimate = isOtherManufacturer
+      ? getOtherAndroidRepairEstimate(definition.label, repairItemMaster)
+      : selectedAndroidModel
+        ? getAndroidRepairEstimate(selectedAndroidModel, definition)
+        : undefined;
+    return toMenu(`fixed-${definition.key}`, definition.label, estimate);
+  });
+  const availableDynamicDefinitions = createAvailableDynamicAndroidRepairDefinitions(
+    repairItemMaster,
+    androidModelRepairSettings,
+    selectedAndroidModel,
+  );
+  const speakerDefinition = availableDynamicDefinitions.find((definition) =>
+    isAndroidSpeakerRepairName(definition.label) ||
+    isAndroidSpeakerRepairName(definition.repairItemName),
+  );
+  const speakerEstimate = speakerDefinition
+    ? isOtherManufacturer
+      ? getOtherAndroidRepairEstimate(speakerDefinition.label, repairItemMaster)
+      : selectedAndroidModel
+        ? getDynamicAndroidRepairEstimate(
+            selectedAndroidModel,
+            speakerDefinition,
+            androidModelRepairSettings,
+          )
+        : undefined
+    : undefined;
+  const speakerMenu = toMenu(
+    "android-speaker-repair",
+    "スピーカー修理",
+    speakerEstimate,
+  );
+  const dynamicMenus = availableDynamicDefinitions.flatMap((definition) => {
+    if (
+      isAndroidSpeakerRepairName(definition.label) ||
+      isAndroidSpeakerRepairName(definition.repairItemName)
+    ) return [];
+    const estimate = isOtherManufacturer
+      ? getOtherAndroidRepairEstimate(definition.label, repairItemMaster)
+      : selectedAndroidModel
+        ? getDynamicAndroidRepairEstimate(selectedAndroidModel, definition, androidModelRepairSettings)
+        : undefined;
+    const menu = estimate ? toMenu(`dynamic-${definition.key}`, definition.label, estimate) : null;
+    return menu ? [menu] : [];
+  });
+
+  return [
+    ...fixedMenus,
+    speakerMenu,
+    {
+      key: "android-water-damage-cleaning", label: "水没洗浄", price: 9680,
+      priceLabel: formatTaxIncludedYen(9680), supportStatus: "店舗対応可", isPriceIncludedInTotal: true,
+      isUnsupported: false, note: "", guidanceText: ANDROID_WATER_DAMAGE_GUIDANCE,
+    },
+    {
+      key: ANDROID_POWER_FAILURE_MENU_KEY, label: "起動不良、電源つかない", price: null,
+      priceLabel: "原因により変動", supportStatus: "案内のみ", isPriceIncludedInTotal: false,
+      isUnsupported: false, note: "", guidanceText: createAndroidPowerFailureGuidance(fixedMenus),
+      powerFailureEstimateMinimum: getAndroidPowerFailureMinimum(
+        fixedMenus.find((menu) => menu.label === "バッテリー交換")?.price,
+      ),
+    },
+    {
+      key: ANDROID_DONOR_REPAIR_MENU_KEY, label: "ドナー修理", price: 15000,
+      priceLabel: `${formatTaxIncludedYen(15000)}＋ドナー端末代`, supportStatus: "要確認", isPriceIncludedInTotal: true,
+      isUnsupported: false, note: "", guidanceText: ANDROID_DONOR_REPAIR_GUIDANCE,
+    },
+    ...dynamicMenus,
+  ];
+}
+
+function isAndroidSpeakerRepairName(value: string) {
+  return (
+    normalizedAndroidBasicRepairAliases.get(normalizeRepairItemName(value)) ===
+    "スピーカー修理"
+  );
+}
+
+function isAndroidBasicRepairName(value: string) {
+  return normalizedAndroidBasicRepairAliases.has(normalizeRepairItemName(value));
+}
+
+function isInactiveAndroidRepairStatus(value: string) {
+  const normalized = stringValue(value).normalize("NFKC").trim();
+  const separatorIndex = normalized.lastIndexOf(androidStatusPriceSeparator);
+  const status = separatorIndex > 0
+    ? normalized.slice(0, separatorIndex).trim()
+    : normalized;
+
+  return isInactiveReceptionStatus(status);
+}
+
+function getAddableAndroidPrice(value: number | string | undefined) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  return typeof value === "string" ? parseSinglePriceString(value) ?? null : null;
+}
+
+function sumAndroidRepairMenuPrices(menus: AndroidRepairMenuItem[]) {
+  return menus.reduce((total, menu) => total + (menu.isPriceIncludedInTotal ? menu.price ?? 0 : 0), 0);
+}
+
+function formatAndroidRepairEstimate(menus: AndroidRepairMenuItem[], optionTotal: number) {
+  const baseEstimate = formatTaxIncludedYen(
+    sumAndroidRepairMenuPrices(menus) + optionTotal,
+  );
+  return menus.some((menu) => menu.key === ANDROID_DONOR_REPAIR_MENU_KEY)
+    ? `${baseEstimate}＋ドナー端末代`
+    : baseEstimate;
+}
+
+function createAndroidRepairTimingGuidance(repairType: string, status?: string) {
+  if (status === "外注必要") {
+    return [
+      "■納期",
+      `外注対応となり、お預かり期間は${ANDROID_OUTSOURCE_GUIDE.leadTime}です。`,
+      "",
+      "■作業時間",
+      "作業時間は端末の状態を確認後にご案内いたします。",
+    ].join("\n");
+  }
+
+  const repairGuide = getAndroidRepairGuide(repairType);
+  if (!repairGuide) {
+    return [
+      "■パーツ納期",
+      "パーツの取り寄せ期間は、在庫状況を確認後にご案内いたします。",
+      "",
+      "■作業時間",
+      "パーツ入荷後の作業時間は、端末の状態を確認後にご案内いたします。",
+    ].join("\n");
+  }
+
+  return [
+    "■パーツ納期",
+    `在庫がない場合は、取り寄せに${repairGuide.partsLeadTime}かかります。`,
+    "",
+    "■作業時間",
+    `パーツ入荷後、${repairGuide.workTime}で作業完了予定です。`,
+    "パーツ入荷後に改めてご連絡いたしますので、その後ご来店をお願いいたします。",
+  ].join("\n");
+}
+
+function createAndroidPowerFailureGuidance(menus: AndroidRepairMenuItem[]) {
+  const batteryMenu = menus.find((menu) => menu.label === "バッテリー交換");
+  const batteryPrice = batteryMenu?.price;
+  return [
+    "起動不良・電源が入らない症状は、故障原因によって修理内容・料金・納期が異なります。",
+    "", "■バッテリーの故障が原因の場合", `バッテリー交換：${batteryPrice !== null && batteryPrice !== undefined ? formatTaxIncludedYen(batteryPrice) : "要確認"}`,
+    "", "■充電口の故障により充電できない場合", `充電口修理：${formatTaxIncludedYen(ANDROID_FIXED_REPAIR_PRICES.chargePort)}`,
+    "", "■基板自体が故障している場合", `基板修理：${ANDROID_BOARD_REPAIR.priceLabel}`,
+    "", "診断の結果、バッテリーや充電口ではなく、端末内部の基板が故障している場合があります。",
+    "", "基板修理は、端末を一時的に起動・操作できる状態まで復旧させ、内部データの取り出しやバックアップを行うことを主な目的とした修理です。",
+    "修理に成功した場合は動作する状態でのご返却となりますが、修理後の継続的な通常使用を保証するものではありません。",
+    "", "また、基板修理は必ず成功するものではありません。",
+    "CPUやデータを保存しているストレージなど、重要な部品自体が故障している場合は、修理やデータの取り出しができないことがあります。",
+    "", "基板修理に加えて、バッテリーや充電口などの部品交換が必要な場合は、別途部品交換費用が発生します。",
+    "", `基板修理は外注対応となり、お預かり期間は${ANDROID_BOARD_REPAIR.leadTime}が目安です。`,
+    "", `※上記は主な故障原因を想定した概算料金です。故障箇所や端末の状態、必要な部品交換によっては、${formatTaxIncludedYen(ANDROID_BOARD_REPAIR.price)}を超える場合があります。`,
+    "",
+    "正式な修理内容・料金・納期は、端末の状態を確認したうえでご案内いたします。",
+  ].join("\n");
+}
+
+function getAndroidPowerFailureMinimum(batteryPrice: number | null | undefined) {
+  const candidates: number[] = [ANDROID_FIXED_REPAIR_PRICES.chargePort];
+  if (typeof batteryPrice === "number" && Number.isFinite(batteryPrice)) {
+    candidates.push(batteryPrice);
+  }
+  return Math.min(...candidates);
+}
+
+function getAndroidPowerFailureEstimate(menus: AndroidRepairMenuItem[]) {
+  const minimum = menus.find(
+    (menu) => menu.key === ANDROID_POWER_FAILURE_MENU_KEY,
+  )?.powerFailureEstimateMinimum ?? ANDROID_FIXED_REPAIR_PRICES.chargePort;
+  return formatTaxIncludedYenRange(
+    minimum,
+    ANDROID_BOARD_REPAIR.price,
+  );
+}
+
+function createAndroidMultipleRepairCustomerMessage({ modelName, menus, optionTotal, isOtherManufacturer }: {
+  modelName: string; menus: AndroidRepairMenuItem[]; optionTotal: number; isOtherManufacturer: boolean;
+}) {
+  const isPowerFailureOnly =
+    menus.length === 1 && menus[0]?.key === ANDROID_POWER_FAILURE_MENU_KEY;
+  const includesDonorRepair = menus.some(
+    (menu) => menu.key === ANDROID_DONOR_REPAIR_MENU_KEY,
+  );
+  const includesOtherManufacturerScreen =
+    isOtherManufacturer && menus.some((menu) => menu.label === "画面修理");
+  const lines = [
+    `${modelName}の修理メニュー：${menus.map((menu) => menu.label).join("、")}`,
+    ...(isPowerFailureOnly
+      ? [`概算見積金額：${getAndroidPowerFailureEstimate(menus)}`]
+      : [
+          ...menus
+            .filter((menu) => menu.key !== ANDROID_DONOR_REPAIR_MENU_KEY)
+            .map((menu) => `・${menu.label}：${menu.priceLabel} / ${menu.supportStatus}`),
+          `${includesDonorRepair ? "概算見積金額" : "合計金額"}：${formatAndroidRepairEstimate(menus, optionTotal)}`,
+        ]),
+  ];
+  const guidance = menus.flatMap((menu) => {
+    if (isOtherManufacturer && menu.label === "画面修理") {
+      return [
+        createAndroidCustomerMessage({ modelName, repairType: menu.label, price: menu.price ?? undefined, status: menu.supportStatus, optionTotal: 0, isOtherManufacturer }),
+        menu.guidanceText,
+      ].filter(Boolean);
+    }
+    if (menu.guidanceText) return [menu.guidanceText];
+    return menu.note ? [menu.note] : [];
+  });
+  return [
+    ...lines,
+    "",
+    ...guidance,
+    ...(isPowerFailureOnly || includesDonorRepair || includesOtherManufacturerScreen
+      ? []
+      : [ANDROID_DATA_GUIDE]),
+  ].filter(Boolean).join("\n");
 }
 
 function getDynamicAndroidRepairEstimate(
@@ -8178,7 +8570,7 @@ function createAndroidCustomerMessage({
 }) {
   if (isOtherManufacturer && repairType === "画面修理") {
     return [
-      `${modelName}の画面修理は、パーツ原価に作業費11,000円を加えた金額でのお見積りとなります。`,
+      `${modelName}の画面修理は、パーツ原価に作業費税込 11,000円を加えた金額でのお見積りとなります。`,
       "パーツ原価を確認後、正式な金額をご案内いたします。",
       ANDROID_DATA_GUIDE,
     ].join("\n");
@@ -8278,11 +8670,11 @@ function formatSwitchBaseEstimate(value: number | string) {
   const parsedNumber = parseSinglePriceString(value);
 
   if (parsedNumber !== undefined) {
-    return `${parsedNumber.toLocaleString("ja-JP")}円（税込）`;
+    return formatTaxIncludedYen(parsedNumber);
   }
 
   if (isRangePrice(value)) {
-    return `${formatRangePrice(value)}（税込）`;
+    return formatTaxIncludedRange(value);
   }
 
   return value || "要相談";
@@ -8294,12 +8686,12 @@ function isSwitchAddablePrice(value: number | string) {
 
 function formatEstimate(value: number | string, optionTotal = 0) {
   if (typeof value === "number") {
-    return `${(value + optionTotal).toLocaleString("ja-JP")}円（税込）`;
+    return formatTaxIncludedYen(value + optionTotal);
   }
 
   const parsedNumber = parseNumericString(value);
   if (parsedNumber !== undefined) {
-    return `${(parsedNumber + optionTotal).toLocaleString("ja-JP")}円（税込）`;
+    return formatTaxIncludedYen(parsedNumber + optionTotal);
   }
 
   if (isConsultationPrice(value)) {
@@ -8310,7 +8702,7 @@ function formatEstimate(value: number | string, optionTotal = 0) {
     return value || "要相談";
   }
 
-  return `${formatYen(value)}（税込）`;
+  return formatTaxIncludedRange(value);
 }
 
 function formatYen(value: number | string) {
@@ -8409,7 +8801,15 @@ function formatRangePrice(value: string) {
   const min = Number(match[1]).toLocaleString("ja-JP");
   const max = match[2] ? Number(match[2]).toLocaleString("ja-JP") : "";
 
-  return max ? `${min}〜${max}円` : `${min}円〜`;
+  return max ? `${min}円〜${max}円` : `${min}円〜`;
+}
+
+function formatTaxIncludedRange(value: string) {
+  return `税込 ${formatRangePrice(value)}`;
+}
+
+function formatTaxIncludedYenRange(minimum: number, maximum: number) {
+  return `税込 ${minimum.toLocaleString("ja-JP")}円〜${maximum.toLocaleString("ja-JP")}円`;
 }
 
 function normalizePriceText(value: string) {
@@ -8429,7 +8829,7 @@ function getManualPriceFromStatus(status: string) {
 }
 
 function formatTaxIncludedYen(value: number) {
-  return `${value.toLocaleString("ja-JP")}円（税込）`;
+  return `税込 ${value.toLocaleString("ja-JP")}円`;
 }
 
 function normalizeOptions(options: OptionItem[]): NormalizedOption[] {
@@ -8469,13 +8869,13 @@ function formatSelectedOptions(options: NormalizedOption[]) {
   }
 
   return options
-    .map((option) => `${option.label} +${option.price.toLocaleString("ja-JP")}円`)
+    .map((option) => `${option.label} + ${formatTaxIncludedYen(option.price)}`)
     .join("、");
 }
 
 function formatReservationOptions(options: NormalizedOption[]) {
   return options
-    .map((option) => `${option.label} ${option.price.toLocaleString("ja-JP")}円`)
+    .map((option) => `${option.label} ${formatTaxIncludedYen(option.price)}`)
     .join(" / ");
 }
 
