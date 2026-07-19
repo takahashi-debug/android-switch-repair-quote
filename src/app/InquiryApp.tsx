@@ -12,8 +12,22 @@ import type {
   SwitchEstimateMasterItem,
   UserMasterItem,
 } from "./types";
+import {
+  createReceptionDraft,
+  purgeExpiredReceptions,
+  ReceptionPanel,
+  type ReceptionDraft,
+} from "./ReceptionPanel";
+import { PcEstimateFields } from "./PcEstimateFields";
+import {
+  findMacBookModel,
+  type MacBookRepairPrice,
+  type MacBookRepairType,
+} from "../data/macbookRepairPrices";
+import { findWindowsPcRepairPrice } from "../data/windowsPcRepairPrices";
 
 type OrderStatus = "受注" | "検討";
+type AppView = "estimate" | "reception";
 type SaveFeedbackTone = "muted" | "success" | "error";
 type AuthUser = UserMasterItem;
 
@@ -129,6 +143,7 @@ type RepairItemNameOption = {
 type FormState = {
   category: InquiryCategory;
   maker: string;
+  customMaker: string;
   modelName: string;
   modelNumber: string;
   repairType: string;
@@ -254,9 +269,13 @@ type ConfirmedEstimate = {
   switchRepairLines: SwitchEstimateLine[];
   switchOptionLines: SwitchOptionLine[];
   unsupportedAndroidRepairLabels: string[];
+  leadTime: string;
+  workTime: string;
+  priceBreakdown: string[];
 };
 
-const categories: InquiryCategory[] = ["Android", "Switch"];
+const categories: InquiryCategory[] = ["Android", "Switch", "Windows PC", "MacBook"];
+const DEVELOPMENT_UNAVAILABLE_MESSAGE = "開発中です。現在は使用できません。";
 const orderStatuses: OrderStatus[] = ["受注", "検討"];
 const adminReportTypes = [
   "価格マスター修正",
@@ -499,7 +518,8 @@ const normalizedAndroidBasicRepairAliases = new Map(
 function createInitialForm(category: InquiryCategory = "Android"): FormState {
   return {
     category,
-    maker: category === "Switch" ? "Nintendo" : "",
+    maker: category === "Switch" ? "Nintendo" : category === "MacBook" ? "Apple" : "",
+    customMaker: "",
     modelName: "",
     modelNumber: "",
     repairType: "",
@@ -548,12 +568,25 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
   const [openDropdownKey, setOpenDropdownKey] =
     useState<OpenDropdownKey>(null);
   const [validationError, setValidationError] = useState("");
+  const [appView, setAppView] = useState<AppView>("estimate");
+  const [receptionDraft, setReceptionDraft] = useState<ReceptionDraft | null>(null);
+  const [receptionTransitionFeedback, setReceptionTransitionFeedback] = useState<SaveFeedback | null>(null);
+  const receptionTransitionRef = useRef(false);
+  const savedReceptionFingerprintsRef = useRef(new Set<string>());
   const resultRef = useRef<HTMLElement | null>(null);
 
   const isSwitch = form.category === "Switch";
+  const isAndroid = form.category === "Android";
+  const isPc = form.category === "Windows PC" || form.category === "MacBook";
   const isOtherAndroidManufacturer =
-    !isSwitch && form.maker === OTHER_ANDROID_MANUFACTURER;
-  const title = isSwitch ? "Switch修理見積り" : "Android修理見積り";
+    isAndroid && form.maker === OTHER_ANDROID_MANUFACTURER;
+  const title = form.category === "Switch"
+    ? "Switch修理見積り"
+    : form.category === "Windows PC"
+      ? "Windows PC修理見積り"
+      : form.category === "MacBook"
+        ? "MacBook修理見積り"
+        : "Android修理見積り";
 
   const androidRows = useMemo(
     () =>
@@ -837,8 +870,38 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
   const loginEmail = authUser?.email || "未設定";
   const role = authUser?.role || "未設定";
   const isAdmin = authUser?.role === "admin";
+  const staffName =
+    masterData.staffList.find(
+      (staff) => normalizeEmail(stringValue(staff.email)) === normalizeEmail(loginEmail),
+    )?.name || "";
   const reportSourceEstimate =
     confirmedEstimate && !hasUnconfirmedChanges ? confirmedEstimate : draftEstimate;
+
+  useEffect(() => {
+    if (authUser?.storeName) {
+      purgeExpiredReceptions(authUser.storeName);
+    }
+  }, [authUser?.storeName]);
+
+  useEffect(() => {
+    if (!authUser || isAdmin || !isPc) return;
+
+    setModelSearch("");
+    setSelectedAndroidModelLabel("");
+    setEditingSwitchUnitId(null);
+    setIsSwitchOptionsOpen(false);
+    setOpenDropdownKey(null);
+    setValidationError("");
+    setForm(createInitialForm());
+    setConfirmedEstimate(null);
+    setSaveFeedback(null);
+    setReceptionDraft(null);
+    setAppView("estimate");
+    setReceptionTransitionFeedback({
+      tone: "muted",
+      message: DEVELOPMENT_UNAVAILABLE_MESSAGE,
+    });
+  }, [authUser, isAdmin, isPc]);
 
   async function submitLogin() {
     const normalizedEmail = normalizeEmail(loginEmailInput);
@@ -885,6 +948,8 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
     setLoginEmailInput("");
     setAdminReportOpen(false);
     setMasterManagementOpen(false);
+    setAppView("estimate");
+    setReceptionDraft(null);
   }
 
   function openAdminReport() {
@@ -958,6 +1023,14 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
   }
 
   function updateCategory(category: InquiryCategory) {
+    if (!isAdmin && isPcCategory(category)) {
+      setReceptionTransitionFeedback({
+        tone: "muted",
+        message: DEVELOPMENT_UNAVAILABLE_MESSAGE,
+      });
+      return;
+    }
+
     setModelSearch("");
     setSelectedAndroidModelLabel("");
     setEditingSwitchUnitId(null);
@@ -965,6 +1038,9 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
     setOpenDropdownKey(null);
     setValidationError("");
     setForm(createInitialForm(category));
+    setConfirmedEstimate(null);
+    setSaveFeedback(null);
+    setReceptionTransitionFeedback(null);
   }
 
   function updateAndroidMaker(maker: string) {
@@ -1205,6 +1281,14 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
   }
 
   function createEstimate() {
+    if (!isAdmin && isPcCategory(form.category)) {
+      setReceptionTransitionFeedback({
+        tone: "muted",
+        message: DEVELOPMENT_UNAVAILABLE_MESSAGE,
+      });
+      return;
+    }
+
     const error = validateEstimateForm(form);
     if (error) {
       setValidationError(error);
@@ -1285,6 +1369,18 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
   }
 
   async function updateOrderStatus(orderStatus: OrderStatus) {
+    if (
+      !isAdmin &&
+      (isPcCategory(form.category) ||
+        (confirmedEstimate && isPcCategory(confirmedEstimate.form.category)))
+    ) {
+      setSaveFeedback({
+        tone: "muted",
+        message: DEVELOPMENT_UNAVAILABLE_MESSAGE,
+      });
+      return;
+    }
+
     if (!confirmedEstimate || hasUnconfirmedChanges) {
       return;
     }
@@ -1322,7 +1418,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
         storeName,
         loginEmail,
         role,
-        modelName: confirmedEstimate.quote.modelName,
+        modelName: createInquiryModelName(confirmedEstimate),
         repairType: confirmedEstimate.quote.repairType,
         status: orderStatus,
       });
@@ -1337,6 +1433,52 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
         message:
           "保存に失敗しました。通信状況を確認して再度お試しください。",
       });
+    }
+  }
+
+  function openReceptionView() {
+    if (!isAdmin) {
+      setReceptionTransitionFeedback({ tone: "muted", message: DEVELOPMENT_UNAVAILABLE_MESSAGE });
+      return;
+    }
+    setReceptionDraft(createReceptionDraft(storeName, staffName));
+    setReceptionTransitionFeedback(null);
+    setAppView("reception");
+  }
+
+  async function proceedToReception() {
+    if (!isAdmin) {
+      setReceptionTransitionFeedback({ tone: "muted", message: DEVELOPMENT_UNAVAILABLE_MESSAGE });
+      return;
+    }
+    if (!confirmedEstimate || hasUnconfirmedChanges) {
+      setReceptionTransitionFeedback({ tone: "error", message: "見積もり内容を確認できませんでした。見積もりを再作成してください。" });
+      return;
+    }
+    if (receptionTransitionRef.current) return;
+    const fingerprint = createEstimateFingerprint(confirmedEstimate);
+    receptionTransitionRef.current = true;
+    setReceptionTransitionFeedback({ tone: "muted", message: "受付を作成しています..." });
+    try {
+      if (!savedReceptionFingerprintsRef.current.has(fingerprint)) {
+        await saveInquiry({
+          storeName,
+          loginEmail,
+          role,
+          modelName: createInquiryModelName(confirmedEstimate),
+          repairType: confirmedEstimate.quote.repairType,
+          status: "受注",
+        });
+        savedReceptionFingerprintsRef.current.add(fingerprint);
+      }
+      setReceptionDraft(createReceptionDraftFromEstimate(confirmedEstimate, storeName, staffName, fingerprint));
+      setReceptionTransitionFeedback(null);
+      setAppView("reception");
+    } catch (error) {
+      console.error(error);
+      setReceptionTransitionFeedback({ tone: "error", message: "問い合わせ履歴の保存に失敗しました。通信状態を確認して、もう一度お試しください。" });
+    } finally {
+      receptionTransitionRef.current = false;
     }
   }
 
@@ -1410,6 +1552,15 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
           </div>
         </header>
 
+        <nav className="grid grid-cols-2 gap-2 rounded-lg bg-slate-200 p-1" aria-label="機能切り替え">
+          <button type="button" onClick={() => setAppView("estimate")} className={`min-h-11 rounded-md px-4 text-sm font-bold ${appView === "estimate" ? "bg-white text-blue-800 shadow-sm" : "text-slate-700"}`}>見積作成</button>
+          <button type="button" aria-disabled={!isAdmin} onClick={openReceptionView} className={`min-h-11 rounded-md px-4 text-sm font-bold ${appView === "reception" ? "bg-white text-blue-800 shadow-sm" : isAdmin ? "text-slate-700" : "cursor-not-allowed bg-slate-100 text-slate-400"}`}>受付作成</button>
+        </nav>
+        {receptionTransitionFeedback && appView === "estimate" ? <p className={`rounded-md px-4 py-3 text-sm font-semibold ${receptionTransitionFeedback.tone === "error" ? "bg-red-50 text-red-700" : "bg-slate-100 text-slate-600"}`}>{receptionTransitionFeedback.message}</p> : null}
+
+        {appView === "reception" && isAdmin ? (
+          <ReceptionPanel storeName={storeName} staffName={stringValue(staffName)} isAdmin={isAdmin} initialDraft={receptionDraft} onDraftConsumed={() => setReceptionDraft(null)} />
+        ) : (
         <section className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
           <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
             <div className="mb-5 flex min-w-0 flex-col gap-3">
@@ -1419,7 +1570,9 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
                   <p className="mt-1 text-sm text-slate-500">
                     {isSwitch
                       ? "機種と台数、端末ごとの症状または修理内容を順番に入力してください。"
-                      : "メーカー、機種、修理内容を順番に選択してください。"}
+                      : isPc
+                        ? "端末情報と修理内容を順番に選択してください。"
+                        : "メーカー、機種、修理内容を順番に選択してください。"}
                   </p>
                 </div>
                 <button
@@ -1433,12 +1586,31 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
               <SegmentedControl
                 options={categories}
                 value={form.category}
+                getLabel={(category) => category === "Switch" ? "Nintendo Switch" : category}
+                isOptionDisabled={(category) => !isAdmin && isPcCategory(category)}
+                getDisabledLabel={() => "開発中"}
                 onChange={updateCategory}
               />
             </div>
 
             <div className="grid min-w-0 gap-6">
-              {isSwitch ? (
+              {isPc ? (
+                <PcEstimateFields
+                  key={form.category}
+                  form={{
+                    category: form.category as "Windows PC" | "MacBook",
+                    maker: form.maker,
+                    customMaker: form.customMaker,
+                    modelName: form.modelName,
+                    modelNumber: form.modelNumber,
+                    repairType: form.repairType,
+                  }}
+                  onChange={(values) => {
+                    setValidationError("");
+                    setForm((current) => ({ ...current, ...values }));
+                  }}
+                />
+              ) : isSwitch ? (
                 <>
                   <Field
                     label="機種と台数を選択"
@@ -1784,7 +1956,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
                 </Field>
               ) : null}
 
-              {!isSwitch && androidOptions.length > 0 ? (
+              {form.category === "Android" && androidOptions.length > 0 ? (
                 <Field
                   label="オプションを選択"
                   step="STEP 4"
@@ -1808,7 +1980,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
               <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
                 <div className="mb-3 flex min-w-0 flex-wrap items-center gap-2">
                   <StepBadge>
-                    {isSwitch ? `STEP ${switchEstimateStepNumber}` : "STEP 5"}
+                    {isSwitch ? `STEP ${switchEstimateStepNumber}` : isPc ? (form.category === "Windows PC" ? "STEP 4" : "STEP 3") : "STEP 5"}
                   </StepBadge>
                   <span className="text-sm font-bold text-slate-950">見積作成</span>
                 </div>
@@ -1846,6 +2018,9 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
             unsupportedAndroidRepairLabels={
               displayEstimate.unsupportedAndroidRepairLabels
             }
+            leadTime={displayEstimate.leadTime}
+            workTime={displayEstimate.workTime}
+            priceBreakdown={displayEstimate.priceBreakdown}
             canSave={confirmedEstimate !== null && !hasUnconfirmedChanges}
             saveFeedback={saveFeedback}
             hasUnconfirmedChanges={hasUnconfirmedChanges}
@@ -1854,10 +2029,14 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
             onReset={resetForm}
             onStatusChange={updateOrderStatus}
             onStockCheckApply={applySwitchStockCheck}
+            isAdmin={isAdmin}
+            receptionTransitionFeedback={receptionTransitionFeedback}
+            onProceedToReception={proceedToReception}
             hasConfirmedEstimate={confirmedEstimate !== null}
             showSwitchOptions={showSwitchOptions}
           />
         </section>
+        )}
       </div>
       {adminReportOpen ? (
         <AdminReportModal
@@ -1903,6 +2082,9 @@ function EstimatePanel({
   switchRepairLines,
   switchOptionLines,
   unsupportedAndroidRepairLabels,
+  leadTime,
+  workTime,
+  priceBreakdown,
   canSave,
   saveFeedback,
   hasUnconfirmedChanges,
@@ -1913,6 +2095,9 @@ function EstimatePanel({
   onReset,
   onStatusChange,
   onStockCheckApply,
+  isAdmin,
+  receptionTransitionFeedback,
+  onProceedToReception,
 }: {
   resultRef: React.RefObject<HTMLElement | null>;
   currentCategory: InquiryCategory;
@@ -1935,6 +2120,9 @@ function EstimatePanel({
   switchRepairLines: SwitchEstimateLine[];
   switchOptionLines: SwitchOptionLine[];
   unsupportedAndroidRepairLabels: string[];
+  leadTime: string;
+  workTime: string;
+  priceBreakdown: string[];
   canSave: boolean;
   saveFeedback: SaveFeedback | null;
   hasUnconfirmedChanges: boolean;
@@ -1945,14 +2133,19 @@ function EstimatePanel({
   onReset: () => void;
   onStatusChange: (status: OrderStatus) => void | Promise<void>;
   onStockCheckApply: (stockCheck: SwitchStockCheckByLine) => void;
+  isAdmin: boolean;
+  receptionTransitionFeedback: SaveFeedback | null;
+  onProceedToReception: () => void | Promise<void>;
 }) {
   const isSwitch = form.category === "Switch";
+  const isAndroid = form.category === "Android";
+  const isPc = form.category === "Windows PC" || form.category === "MacBook";
   const isAndroidPowerFailureOnly =
-    !isSwitch &&
+    isAndroid &&
     form.selectedAndroidRepairKeys.length === 1 &&
     form.selectedAndroidRepairKeys[0] === ANDROID_POWER_FAILURE_MENU_KEY;
   const includesAndroidDonorRepair =
-    !isSwitch &&
+    isAndroid &&
     form.selectedAndroidRepairKeys.includes(ANDROID_DONOR_REPAIR_MENU_KEY);
   const [stockCheckOpen, setStockCheckOpen] = useState(false);
   const showSwitchStockCheck =
@@ -1971,7 +2164,7 @@ function EstimatePanel({
         : saveFeedback;
   const staffNotes = [
     quote.note,
-    !isSwitch && quote.status && quote.status !== "店舗対応可"
+    isAndroid && quote.status && quote.status !== "店舗対応可"
       ? quote.status
       : "",
     quote.receptionStatus && quote.receptionStatus !== "店舗対応可"
@@ -2035,6 +2228,31 @@ function EstimatePanel({
           ) : null}
 
         </>
+      ) : isPc ? (
+        <>
+          <dl className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2">
+            {form.category === "Windows PC" ? <InfoRow label="メーカー" value={form.maker === "その他" ? form.customMaker : form.maker} /> : null}
+            <InfoRow label={form.category === "Windows PC" ? "端末タイプ" : "機種名"} value={quote.modelName} />
+            {form.category === "MacBook" ? <InfoRow label="モデル番号" value={quote.modelNumber || "-"} /> : null}
+            <InfoRow label="修理内容" value={quote.repairType} />
+            <InfoRow label="概算見積金額" value={estimateText} strong />
+            <InfoRow label="対応区分" value={quote.status} />
+            <InfoRow label="納期" value={leadTime} />
+            <InfoRow label="作業時間" value={workTime} />
+          </dl>
+          {priceBreakdown.length > 0 ? (
+            <section className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm leading-7 text-slate-800">
+              <h3 className="font-bold text-slate-950">内訳</h3>
+              {priceBreakdown.map((line) => <p key={line}>{line}</p>)}
+            </section>
+          ) : estimateText === "要確認" ? (
+            <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
+              {form.category === "MacBook" ? "この機種の修理料金は確認が必要です。" : "端末の状態や作業内容を確認後にご案内します。"}
+            </p>
+          ) : form.category === "Windows PC" && form.repairType === "マザーボード・基板修理" ? (
+            <p className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm font-semibold text-slate-800">故障箇所や基板の状態によって料金が変動します。</p>
+          ) : null}
+        </>
       ) : (
         <dl className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2">
           <InfoRow label="機種名" value={quote.modelName} />
@@ -2094,7 +2312,7 @@ function EstimatePanel({
             <pre className="mt-3 min-h-48 max-w-full overflow-hidden whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-4 font-sans text-base leading-7 text-slate-800">
               {customerMessage}
             </pre>
-            {!isSwitch && unsupportedAndroidRepairLabels.length > 0 ? (
+            {isAndroid && unsupportedAndroidRepairLabels.length > 0 ? (
               <section className="mt-3 min-w-0 overflow-hidden rounded-lg border border-yellow-300 bg-yellow-50 p-4 text-sm leading-6 text-yellow-950 dark:border-yellow-700 dark:bg-yellow-950 dark:text-yellow-100">
                 <h4 className="font-bold">スタッフ向けメモ</h4>
                 <div className="mt-2 min-w-0 break-words">
@@ -2140,6 +2358,20 @@ function EstimatePanel({
               savingStatus={saveFeedback?.savingStatus}
               onChange={onStatusChange}
             />
+            <button
+              type="button"
+              aria-disabled={!isAdmin || receptionTransitionFeedback?.message === "受付を作成しています..."}
+              onClick={onProceedToReception}
+              className={`min-h-12 w-full rounded-md px-4 text-base font-bold transition ${
+                isAdmin && receptionTransitionFeedback?.message !== "受付を作成しています..."
+                  ? "bg-indigo-700 text-white hover:bg-indigo-800"
+                  : "cursor-not-allowed bg-slate-300 text-slate-500"
+              }`}
+            >
+              {receptionTransitionFeedback?.message === "受付を作成しています..."
+                ? "受付を作成しています..."
+                : "受付作成へ進む"}
+            </button>
             {statusFeedback ? (
               <p
                 className={`rounded-md px-3 py-2 text-sm font-semibold ${
@@ -2186,6 +2418,10 @@ function EstimateEmptyState({
           ...(showSwitchOptions ? ["必要に応じてオプションを選択"] : []),
           "見積作成を押す",
         ]
+      : category === "Windows PC"
+        ? ["メーカーを選択", "端末タイプを選択", "修理内容を選択", "見積作成を押す"]
+        : category === "MacBook"
+          ? ["MacBook機種を検索・選択", "修理内容を選択", "見積作成を押す"]
       : [
           "メーカーを選択",
           "機種を選択",
@@ -2345,7 +2581,7 @@ function UsageGuideModal({
           <div className="min-w-0">
             <h2 className="text-xl font-bold text-slate-950">使い方</h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              Android / Switch の概算見積もりと、お客様案内文を作成できます。
+              Android / Nintendo Switch / Windows PC / MacBook の概算見積もりと、お客様案内文を作成できます。
             </p>
           </div>
           <button
@@ -5440,29 +5676,43 @@ function SegmentedControl<T extends string>({
   options,
   value,
   getLabel,
+  isOptionDisabled,
+  getDisabledLabel,
   onChange,
 }: {
   options: T[];
   value: T;
   getLabel?: (value: T) => string;
+  isOptionDisabled?: (value: T) => boolean;
+  getDisabledLabel?: (value: T) => string;
   onChange: (value: T) => void;
 }) {
   return (
     <div className="grid w-full max-w-full min-w-0 grid-cols-2 gap-2">
-      {options.map((option) => (
-        <button
-          key={option}
-          type="button"
-          onClick={() => onChange(option)}
-          className={`min-h-11 w-full min-w-0 whitespace-normal break-words rounded-lg border px-3 py-2 text-sm font-semibold transition ${
-            value === option
-              ? "border-blue-700 bg-blue-700 text-white"
-              : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-          }`}
-        >
-          {getLabel ? getLabel(option) : option}
-        </button>
-      ))}
+      {options.map((option) => {
+        const isDisabled = isOptionDisabled?.(option) ?? false;
+
+        return (
+          <button
+            key={option}
+            type="button"
+            aria-disabled={isDisabled}
+            onClick={() => onChange(option)}
+            className={`min-h-11 w-full min-w-0 whitespace-normal break-words rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+              isDisabled
+                ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400"
+                : value === option
+                  ? "border-blue-700 bg-blue-700 text-white"
+                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+            }`}
+          >
+            <span className="block">{getLabel ? getLabel(option) : option}</span>
+            {isDisabled && getDisabledLabel ? (
+              <span className="mt-0.5 block text-xs font-bold">{getDisabledLabel(option)}</span>
+            ) : null}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -5635,6 +5885,118 @@ function CopyButton({
   );
 }
 
+type PcEstimateDetails = {
+  quote: EstimateQuote;
+  estimateText: string;
+  customerMessage: string;
+  manufacturer: string;
+  leadTime: string;
+  workTime: string;
+  priceBreakdown: string[];
+};
+
+const MACBOOK_SCHEDULES: Record<MacBookRepairType, { leadTime: string; workTime: string }> = {
+  画面交換: { leadTime: "1週間〜2週間程度", workTime: "2〜3時間程度" },
+  バッテリー交換: { leadTime: "3日〜1週間程度", workTime: "1〜2時間程度" },
+  キーボード交換: { leadTime: "1週間〜2週間程度", workTime: "2〜4時間程度" },
+  基板修理: { leadTime: "1週間〜3週間程度", workTime: "要確認" },
+  水没修理: { leadTime: "1週間〜3週間程度", workTime: "要確認" },
+  ファン交換: { leadTime: "3日〜1週間程度", workTime: "1〜2時間程度" },
+};
+
+function createPcEstimate(form: FormState): PcEstimateDetails {
+  if (form.category === "Windows PC") {
+    const repair = findWindowsPcRepairPrice(form.repairType);
+    const manufacturer = form.maker === "その他" ? form.customMaker.trim() : form.maker;
+    const basePrice = repair?.price ? formatTaxIncludedYen(repair.price) : "要確認";
+    const estimateText = repair?.kind === "parts"
+      ? `${basePrice}＋パーツ原価`
+      : repair?.kind === "from"
+        ? `${basePrice}〜`
+        : repair?.kind === "fixed"
+          ? basePrice
+          : "要確認";
+    const priceBreakdown = repair?.kind === "parts"
+      ? [`作業費：${basePrice}`, "パーツ原価：要確認"]
+      : [];
+    const subject = `${manufacturer || "選択メーカー"}の${form.modelName || "PC"}の${form.repairType || "修理"}`;
+    let customerMessage: string;
+    if (!repair || repair.kind === "check") {
+      customerMessage = `${subject}は、端末の状態や作業内容を確認後に料金をご案内します。`;
+    } else if (repair.kind === "from") {
+      customerMessage = `${subject}は、${basePrice}からです。\n故障箇所や基板の状態によって料金が変動します。\n納期は${repair.leadTime}です。`;
+    } else if (repair.kind === "parts") {
+      const partsNote = repair.label === "SSD・HDD交換"
+        ? "交換するSSDまたはHDDのパーツ原価が必要となります。\nパーツ原価と納期は、端末の型番と必要な容量を確認後にご案内します。"
+        : "別途、交換部品のパーツ原価が必要となります。\nパーツ原価と納期は、端末の型番と部品の在庫状況を確認後にご案内します。";
+      customerMessage = `${subject}は、作業費が${basePrice}です。\n${partsNote}`;
+    } else {
+      customerMessage = `${subject}は、${basePrice}です。\n納期は${repair.leadTime}、作業時間は${repair.workTime}です。`;
+    }
+    return {
+      quote: {
+        modelName: form.modelName || "未選択",
+        modelNumber: "",
+        symptom: "",
+        repairType: form.repairType || "未選択",
+        price: repair?.price,
+        status: repair?.kind === "check" ? "要確認" : "概算案内",
+        note: "",
+        receptionStatus: "",
+      },
+      estimateText,
+      customerMessage,
+      manufacturer,
+      leadTime: repair?.leadTime || "要確認",
+      workTime: repair?.workTime || "要確認",
+      priceBreakdown,
+    };
+  }
+
+  const model = findMacBookModel(form.modelName, form.modelNumber);
+  const repairType = form.repairType as MacBookRepairType;
+  const price = model?.prices[repairType] ?? null;
+  const schedule = MACBOOK_SCHEDULES[repairType] || { leadTime: "要確認", workTime: "要確認" };
+  const estimateText = formatMacBookPrice(price);
+  const modelName = form.modelNumber && form.modelName.endsWith(` ${form.modelNumber}`)
+    ? form.modelName.slice(0, -(form.modelNumber.length + 1))
+    : form.modelName;
+  const customerModelName = (form.modelName || "選択したMacBook").replace("インチ ", "インチ MacBook ");
+  const subject = `${customerModelName}の${form.repairType || "修理"}`;
+  let customerMessage: string;
+  if (price === null) {
+    customerMessage = `${subject}は、料金の確認が必要です。\nこの機種の修理料金は確認が必要です。`;
+  } else if (repairType === "水没修理") {
+    customerMessage = `水没修理は、内部の洗浄および故障箇所の検証を行います。\n料金は${formatMacBookPrice(price).replace("税込 ", "税込").replace("円〜", "円から")}となり、部品交換や基板修理が必要な場合は別途料金をご案内します。`;
+  } else {
+    customerMessage = `${subject}は、${estimateText.replace("税込 ", "税込")}です。\n部品の在庫状況により、納期は${schedule.leadTime}となります。`;
+  }
+  return {
+    quote: {
+      modelName: modelName || "未選択",
+      modelNumber: form.modelNumber,
+      symptom: "",
+      repairType: form.repairType || "未選択",
+      price: price ?? undefined,
+      status: price === null ? "要確認" : "価格表案内",
+      note: "",
+      receptionStatus: "",
+    },
+    estimateText,
+    customerMessage,
+    manufacturer: "Apple",
+    leadTime: schedule.leadTime,
+    workTime: schedule.workTime,
+    priceBreakdown: [],
+  };
+}
+
+function formatMacBookPrice(price: MacBookRepairPrice) {
+  if (price === null) return "要確認";
+  if (typeof price === "number") return formatTaxIncludedYen(price);
+  return `${formatTaxIncludedYen(Number(price.slice(0, -1)))}〜`;
+}
+
 function createEstimateResult({
   form,
   selectedOptions,
@@ -5649,15 +6011,18 @@ function createEstimateResult({
   androidRepairMenus: AndroidRepairMenuItem[];
 }): ConfirmedEstimate {
   const isSwitch = form.category === "Switch";
+  const isAndroid = form.category === "Android";
+  const isPc = form.category === "Windows PC" || form.category === "MacBook";
   const isOtherAndroidManufacturer =
-    !isSwitch && form.maker === OTHER_ANDROID_MANUFACTURER;
+    isAndroid && form.maker === OTHER_ANDROID_MANUFACTURER;
+  const pcEstimate = isPc ? createPcEstimate(form) : null;
   const switchRepairLines = isSwitch ? createSwitchRepairLines(form, switchRows) : [];
   const switchOptionLines = isSwitch
     ? createSwitchOptionLines(form, selectedOptions)
     : [];
   const switchTotal = sumSwitchLineTotals(switchRepairLines, switchOptionLines);
   const switchHasVariable = switchRepairLines.some((line) => line.isVariablePrice);
-  const androidOptionTotal = !isSwitch
+  const androidOptionTotal = isAndroid
     ? selectedOptions.reduce((total, option) => total + option.price, 0)
     : 0;
   const quote: EstimateQuote = isSwitch
@@ -5676,7 +6041,9 @@ function createEstimateResult({
           switchRepairLines.map((line) => line.receptionStatus),
         ).join("\n"),
       }
-    : {
+    : pcEstimate
+      ? pcEstimate.quote
+      : {
         modelName: isOtherAndroidManufacturer
           ? form.modelName || OTHER_ANDROID_MODEL_FALLBACK
           : form.modelName || "未選択",
@@ -5694,6 +6061,8 @@ function createEstimateResult({
   const estimateText =
     isSwitch
       ? formatSwitchTotalEstimate(switchTotal, switchHasVariable)
+      : pcEstimate
+        ? pcEstimate.estimateText
       : androidRepairMenus.length === 1 &&
           androidRepairMenus[0]?.key === ANDROID_POWER_FAILURE_MENU_KEY
         ? getAndroidPowerFailureEstimate(androidRepairMenus)
@@ -5706,7 +6075,9 @@ function createEstimateResult({
         total: switchTotal,
         hasVariablePrice: switchHasVariable,
       })
-    : createAndroidMultipleRepairCustomerMessage({
+    : pcEstimate
+      ? pcEstimate.customerMessage
+      : createAndroidMultipleRepairCustomerMessage({
         modelName: quote.modelName,
         menus: androidRepairMenus,
         optionTotal: androidOptionTotal,
@@ -5744,6 +6115,9 @@ function createEstimateResult({
         .filter((menu) => menu.isUnsupported)
         .map((menu) => menu.label),
     ),
+    leadTime: pcEstimate?.leadTime || "",
+    workTime: pcEstimate?.workTime || "",
+    priceBreakdown: pcEstimate?.priceBreakdown || [],
   };
 }
 
@@ -5765,14 +6139,16 @@ function createReservationCopy({
   switchStockCheck?: SwitchStockCheckByLine;
 }) {
   const isSwitch = form.category === "Switch";
+  const isAndroid = form.category === "Android";
+  const isPc = form.category === "Windows PC" || form.category === "MacBook";
   const isOtherAndroidManufacturer =
-    !isSwitch && form.maker === OTHER_ANDROID_MANUFACTURER;
+    isAndroid && form.maker === OTHER_ANDROID_MANUFACTURER;
   const isAndroidPowerFailureOnly =
-    !isSwitch &&
+    isAndroid &&
     form.selectedAndroidRepairKeys.length === 1 &&
     form.selectedAndroidRepairKeys[0] === ANDROID_POWER_FAILURE_MENU_KEY;
   const includesAndroidDonorRepair =
-    !isSwitch &&
+    isAndroid &&
     form.selectedAndroidRepairKeys.includes(ANDROID_DONOR_REPAIR_MENU_KEY);
 
   if (isSwitch) {
@@ -5807,6 +6183,23 @@ function createReservationCopy({
     ];
 
     return switchReservationCopy.join("\n");
+  }
+
+  if (isPc) {
+    const pcEstimate = createPcEstimate(form);
+    return [
+      `ステータス: ${form.orderStatus}`,
+      `カテゴリ: ${form.category}`,
+      `メーカー: ${pcEstimate.manufacturer}`,
+      `機種名: ${quote.modelName}`,
+      `型番: ${quote.modelNumber || "なし"}`,
+      `修理内容: ${quote.repairType}`,
+      `概算見積金額: ${estimateText}`,
+      ...(pcEstimate.priceBreakdown.length > 0 ? ["内訳:", ...pcEstimate.priceBreakdown] : []),
+      `対応区分: ${quote.status}`,
+      `納期: ${pcEstimate.leadTime}`,
+      `作業時間: ${pcEstimate.workTime}`,
+    ].join("\n");
   }
 
   const androidReservationCopy = [
@@ -7001,6 +7394,7 @@ function estimateInputMatches(current: FormState, confirmed: FormState) {
   return (
     current.category === confirmed.category &&
     current.maker === confirmed.maker &&
+    current.customMaker === confirmed.customMaker &&
     current.modelName === confirmed.modelName &&
     current.modelNumber === confirmed.modelNumber &&
     current.repairType === confirmed.repairType &&
@@ -7016,6 +7410,77 @@ function estimateInputMatches(current: FormState, confirmed: FormState) {
     ) &&
     sameStringList(current.selectedOptionKeys, confirmed.selectedOptionKeys)
   );
+}
+
+function createEstimateFingerprint(estimate: ConfirmedEstimate) {
+  return JSON.stringify({
+    category: estimate.form.category,
+    maker: estimate.form.maker,
+    customMaker: estimate.form.customMaker,
+    modelName: estimate.quote.modelName,
+    modelNumber: estimate.quote.modelNumber,
+    symptom: estimate.quote.symptom,
+    repairType: estimate.quote.repairType,
+    estimateText: estimate.estimateText,
+    options: estimate.selectedOptions.map((option) => [option.key, option.price]),
+    switchRepairs: estimate.switchRepairLines.map((line) => [line.unitId, line.repairType, line.lineTotal]),
+    switchOptions: estimate.switchOptionLines.map((line) => [line.label, line.quantity, line.lineTotal]),
+  });
+}
+
+function createReceptionDraftFromEstimate(
+  estimate: ConfirmedEstimate,
+  storeName: string,
+  staffName: string,
+  fingerprint: string,
+): ReceptionDraft {
+  const draft = createReceptionDraft(storeName, staffName);
+  const switchWorkTimes = estimate.switchStockCheck
+    ? uniqueValues(Object.values(estimate.switchStockCheck).map((check) => check.workTime || ""))
+    : [];
+  return {
+    ...draft,
+    deviceCategory: estimate.form.category,
+    manufacturer: estimate.form.category === "Switch"
+      ? "Nintendo"
+      : estimate.form.category === "MacBook"
+        ? "Apple"
+        : estimate.form.category === "Windows PC" && estimate.form.maker === "その他"
+          ? estimate.form.customMaker
+          : estimate.form.maker,
+    modelName: cleanReceptionValue(estimate.quote.modelName),
+    modelNumber: cleanReceptionValue(estimate.quote.modelNumber),
+    symptom: cleanReceptionValue(estimate.quote.symptom || estimate.form.symptom),
+    repairDetails: cleanReceptionValue(estimate.quote.repairType),
+    estimateAmount: cleanReceptionValue(estimate.estimateText),
+    supportCategory: cleanReceptionValue(estimate.quote.status || estimate.quote.receptionStatus),
+    deliveryTime: cleanReceptionValue(estimate.leadTime),
+    workTime: estimate.workTime || switchWorkTimes.join("、"),
+    options: estimate.form.category === "Switch"
+      ? estimate.switchOptionLines.map(formatSwitchOptionLine).join("\n")
+      : estimate.selectedOptions.map((option) => option.label).join("、"),
+    customerGuidance: cleanReceptionValue(estimate.customerMessage),
+    fromEstimate: true,
+    estimateFingerprint: fingerprint,
+  };
+}
+
+function createInquiryModelName(estimate: ConfirmedEstimate) {
+  if (estimate.form.category === "Windows PC") {
+    const manufacturer = estimate.form.maker === "その他"
+      ? estimate.form.customMaker
+      : estimate.form.maker;
+    return [manufacturer, estimate.quote.modelName].filter(Boolean).join("／");
+  }
+  if (estimate.form.category === "MacBook") {
+    return [estimate.quote.modelName, estimate.quote.modelNumber].filter(Boolean).join(" ");
+  }
+  return estimate.quote.modelName;
+}
+
+function cleanReceptionValue(value: unknown) {
+  const text = stringValue(value);
+  return text === "undefined" || text === "null" || text === "未選択" || text === "-" ? "" : text;
 }
 
 function sameSwitchSelectedModels(
@@ -7086,6 +7551,23 @@ function uniqueModelCandidates(rows: AndroidPriceMasterItem[]): ModelCandidate[]
 }
 
 function validateEstimateForm(form: FormState) {
+  if (form.category === "Windows PC") {
+    const missingItems = [
+      !form.maker || (form.maker === "その他" && !form.customMaker.trim()) ? "メーカー" : "",
+      !form.modelName ? "端末タイプ" : "",
+      !form.repairType ? "修理内容" : "",
+    ].filter(Boolean);
+    return missingItems.length > 0 ? `${missingItems.join("、")}を選択してください。` : "";
+  }
+
+  if (form.category === "MacBook") {
+    const missingItems = [
+      !form.modelName ? "MacBook機種" : "",
+      !form.repairType ? "修理内容" : "",
+    ].filter(Boolean);
+    return missingItems.length > 0 ? `${missingItems.join("、")}を選択してください。` : "";
+  }
+
   if (form.category !== "Switch") {
     const missingItems = [
       !form.maker ? "メーカー" : "",
@@ -7140,6 +7622,10 @@ function validateEstimateForm(form: FormState) {
   }
 
   return "";
+}
+
+function isPcCategory(category: InquiryCategory) {
+  return category === "Windows PC" || category === "MacBook";
 }
 
 function isSwitchUnitInputComplete(unit: SwitchUnitInput) {

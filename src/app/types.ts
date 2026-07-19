@@ -1,4 +1,4 @@
-export type InquiryCategory = "Android" | "Switch";
+export type InquiryCategory = "Android" | "Switch" | "Windows PC" | "MacBook";
 
 export type AndroidPriceMasterItem = {
   rowNumber: number;
