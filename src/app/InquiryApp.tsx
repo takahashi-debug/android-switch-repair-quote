@@ -416,6 +416,7 @@ const ANDROID_CONDITION_CHANGE_GUIDE =
   "端末の状態によっては、作業内容やお時間が変動する場合がございます。";
 const SWITCH_CONDITION_CHANGE_GUIDE =
   "端末の状態や部品状況によっては、作業内容・金額・お預かり期間が変動する場合がございます。";
+const SWITCH_OUTSOURCE_DEFAULT_LEAD_TIME = "1週間〜10日程度";
 const SWITCH_WORK_TIME_OPTIONS: SwitchWorkTime[] = [
   "30分",
   "60分",
@@ -8203,10 +8204,6 @@ function formatSwitchRepairLinePrice(line: SwitchEstimateLine) {
   return formatSwitchUnitPrice(line.price);
 }
 
-function hasSwitchOutsourceRequired(repairLines: SwitchEstimateLine[]) {
-  return repairLines.some(isSwitchOutsourceRequiredLine);
-}
-
 function getSwitchRepairLineKey(line: SwitchEstimateLine) {
   return `${line.unitId}:${line.repairType}`;
 }
@@ -8293,33 +8290,40 @@ function getSwitchStockCheckEntries(
 }
 
 function isSwitchOutsourceRequiredLine(line: SwitchEstimateLine) {
-  const model = normalizeSwitchStockCheckText(line.modelName || "");
-  const repair = normalizeSwitchStockCheckText(
-    `${line.repairType || ""} ${formatSwitchRepairLine(line)}`,
-  );
-
-  const isBoardRepair = repair.includes("基板") || repair.includes("基盤");
-  const isChargePortRepair =
-    repair.includes("充電口") ||
-    repair.includes("usbc") ||
-    repair.includes("typec") ||
-    repair.includes("タイプc");
-  const isProController =
-    model.includes("proコントロラ") ||
-    model.includes("プロコントロラ") ||
-    model.includes("proコントローラー") ||
-    model.includes("proコン") ||
-    model.includes("プロコン") ||
-    model.includes("procon") ||
-    model.includes("procontroller");
-  const isStickRepair =
-    repair.includes("スティック") || repair.includes("アナログスティック");
-
-  return isBoardRepair || isChargePortRepair || (isProController && isStickRepair);
+  return line.status.normalize("NFKC").trim() === "外注必要";
 }
 
-function normalizeSwitchStockCheckText(value: string) {
-  return normalizeSearchText(value).replace(/\s+/g, "").replace(/[‐‑‒–—ー-]/g, "");
+function getSwitchOutsourceLeadTime(repairLines: SwitchEstimateLine[]) {
+  for (const line of repairLines.filter(isSwitchOutsourceRequiredLine)) {
+    const matchedLeadTime = line.note
+      .normalize("NFKC")
+      .match(/(?:納期(?:目安)?|お預かり期間)\s*[:：]\s*([^\n。]+)/)?.[1]
+      ?.trim();
+
+    if (matchedLeadTime) {
+      return matchedLeadTime;
+    }
+  }
+
+  return SWITCH_OUTSOURCE_DEFAULT_LEAD_TIME;
+}
+
+function createSwitchOutsourceCustomerMessage(
+  repairLines: SwitchEstimateLine[],
+) {
+  const outsourcedRepairTypes = uniqueValues(
+    repairLines
+      .filter(isSwitchOutsourceRequiredLine)
+      .map((line) => line.repairType),
+  );
+
+  if (outsourcedRepairTypes.length === 0) {
+    return "";
+  }
+
+  return `こちらの修理は外注での${outsourcedRepairTypes.join(
+    "・",
+  )}となります。納期目安は${getSwitchOutsourceLeadTime(repairLines)}です。`;
 }
 
 function appendSwitchStockCheckMessage(
@@ -8358,7 +8362,9 @@ function createSwitchStockCheckCustomerMessage(
   repairLines: SwitchEstimateLine[],
   selectedModels?: SwitchSelectedModel[],
 ) {
-  const entries = getSwitchStockCheckEntries(stockCheck, repairLines);
+  const entries = getSwitchStockCheckEntries(stockCheck, repairLines).filter(
+    ({ line }) => !isSwitchOutsourceRequiredLine(line),
+  );
 
   if (entries.length === 0) {
     return "";
@@ -8482,6 +8488,7 @@ function createSwitchCustomerMessage({
     optionDetails.length > 0
       ? `追加オプションとして、${optionDetails.join("、")}を含んでいます。`
       : "";
+  const outsourceGuide = createSwitchOutsourceCustomerMessage(repairLines);
 
   if (singleRepairLine) {
     return [
@@ -8491,6 +8498,7 @@ function createSwitchCustomerMessage({
         form.switchSelectedModels,
       ),
       optionGuide,
+      outsourceGuide,
       SWITCH_CONDITION_CHANGE_GUIDE,
     ]
       .filter(Boolean)
@@ -8512,6 +8520,7 @@ function createSwitchCustomerMessage({
       ...repairMessages,
       optionGuide,
       simultaneousRepairGuide,
+      outsourceGuide,
       SWITCH_CONDITION_CHANGE_GUIDE,
     ]
       .filter(Boolean)
@@ -8523,6 +8532,7 @@ function createSwitchCustomerMessage({
     ...repairMessages,
     optionGuide,
     simultaneousRepairGuide,
+    outsourceGuide,
     SWITCH_CONDITION_CHANGE_GUIDE,
   ]
     .filter(Boolean)
