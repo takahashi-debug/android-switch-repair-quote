@@ -2194,6 +2194,7 @@ function EstimatePanel({
           <dl className="mt-4 grid min-w-0 gap-3">
             <InfoRow label="お見積り合計" value={estimateText} strong />
             <InfoRow label="選択機種" value={quote.modelName} />
+            <InfoRow label="対応区分" value={quote.status || "-"} />
           </dl>
 
           <section className="mt-4 min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-800">
@@ -6035,7 +6036,7 @@ function createEstimateResult({
         ),
         repairType: formatSwitchRepairTypesForSave(switchRepairLines),
         price: switchTotal,
-        status: "",
+        status: uniqueValues(switchRepairLines.map((line) => line.status)).join("、"),
         note: uniqueValues(switchRepairLines.map((line) => line.note)).join("\n"),
         receptionStatus: uniqueValues(
           switchRepairLines.map((line) => line.receptionStatus),
