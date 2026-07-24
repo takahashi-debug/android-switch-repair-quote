@@ -1,4 +1,10 @@
-export type InquiryCategory = "Android" | "Switch" | "Windows PC" | "MacBook";
+export type InquiryCategory =
+  | "Android"
+  | "Switch"
+  | "Dyson"
+  | "Roomba"
+  | "Windows PC"
+  | "MacBook";
 
 export type AndroidPriceMasterItem = {
   rowNumber: number;
@@ -28,6 +34,23 @@ export type SwitchEstimateMasterItem = {
   repairStatus: string;
   note: string;
   receptionStatus: string;
+};
+
+export type DysonRoombaEstimateMasterRow = {
+  rowNumber: number;
+  category: string;
+  manufacturer: string;
+  modelName: string;
+  modelNumber: string;
+  symptomSelectionType: string;
+  symptom: string;
+  candidateGroupId: string;
+  estimatedRepairType: string;
+  price: number | string;
+  leadTime: string;
+  note: string;
+  receptionStatus: string;
+  sortOrder: number | string;
 };
 
 export type RepairItemMasterItem = {
@@ -84,6 +107,7 @@ export type OptionItem = {
 export type InitialData = {
   priceMaster: AndroidPriceMasterItem[];
   switchEstimateMaster: SwitchEstimateMasterItem[];
+  dysonRoombaEstimateMaster: DysonRoombaEstimateMasterRow[];
   repairItemMaster: RepairItemMasterItem[];
   androidModelRepairSettings: AndroidModelRepairSettingItem[];
   staffList: StaffItem[];

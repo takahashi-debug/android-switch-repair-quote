@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   AndroidModelRepairSettingItem,
   AndroidPriceMasterItem,
+  DysonRoombaEstimateMasterRow,
   InitialData,
   InquiryCategory,
   OptionItem,
@@ -269,12 +270,20 @@ type ConfirmedEstimate = {
   switchRepairLines: SwitchEstimateLine[];
   switchOptionLines: SwitchOptionLine[];
   unsupportedAndroidRepairLabels: string[];
+  applianceCandidates: DysonRoombaEstimateMasterRow[];
   leadTime: string;
   workTime: string;
   priceBreakdown: string[];
 };
 
-const categories: InquiryCategory[] = ["Android", "Switch", "Windows PC", "MacBook"];
+const categories: InquiryCategory[] = [
+  "Android",
+  "Switch",
+  "Dyson",
+  "Roomba",
+  "Windows PC",
+  "MacBook",
+];
 const DEVELOPMENT_UNAVAILABLE_MESSAGE = "開発中です。現在は使用できません。";
 const orderStatuses: OrderStatus[] = ["受注", "検討"];
 const adminReportTypes = [
@@ -579,6 +588,9 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
   const isSwitch = form.category === "Switch";
   const isAndroid = form.category === "Android";
   const isPc = form.category === "Windows PC" || form.category === "MacBook";
+  const isDyson = form.category === "Dyson";
+  const isRoomba = form.category === "Roomba";
+  const isAppliance = isDyson || isRoomba;
   const isOtherAndroidManufacturer =
     isAndroid && form.maker === OTHER_ANDROID_MANUFACTURER;
   const title = form.category === "Switch"
@@ -587,6 +599,8 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
       ? "Windows PC修理見積り"
       : form.category === "MacBook"
         ? "MacBook修理見積り"
+        : isAppliance
+          ? `${form.category}修理見積り`
         : "Android修理見積り";
 
   const androidRows = useMemo(
@@ -605,6 +619,48 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
     [masterData.switchEstimateMaster],
   );
 
+  const applianceRows = useMemo(
+    () => {
+      const masterCategory =
+        form.category === "Dyson"
+          ? "ダイソン"
+          : form.category === "Roomba"
+            ? "ルンバ"
+            : form.category;
+
+      return (
+        masterData.dysonRoombaEstimateMaster
+          .filter((item) => item.category === masterCategory)
+          .sort(compareSortOrder)
+      );
+    },
+    [form.category, masterData.dysonRoombaEstimateMaster],
+  );
+  const applianceModels = useMemo(
+    () => uniqueApplianceModels(applianceRows),
+    [applianceRows],
+  );
+  const applianceSymptoms = useMemo(
+    () =>
+      uniqueApplianceSymptoms(
+        applianceRows.filter(
+          (item) =>
+            item.modelName === form.modelName &&
+            item.modelNumber === form.modelNumber,
+        ),
+      ),
+    [applianceRows, form.modelName, form.modelNumber],
+  );
+  const applianceCandidates = useMemo(
+    () =>
+      applianceRows.filter(
+        (item) =>
+          item.modelName === form.modelName &&
+          item.modelNumber === form.modelNumber &&
+          item.symptom === form.symptom,
+      ),
+    [applianceRows, form.modelName, form.modelNumber, form.symptom],
+  );
   const androidOptions = useMemo(
     () => normalizeOptions(masterData.optionMaster),
     [masterData.optionMaster],
@@ -745,6 +801,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
         selectedAndroidModel,
         switchRows,
         androidRepairMenus: selectedAndroidRepairMenus,
+        applianceRows: applianceCandidates,
       }),
     [
       selectedAndroidRepairMenus,
@@ -753,6 +810,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
       selectedAndroidModel,
       selectedOptions,
       switchRows,
+      applianceCandidates,
     ],
   );
 
@@ -764,6 +822,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
         selectedAndroidModel: undefined,
         switchRows: [],
         androidRepairMenus: [],
+        applianceRows: [],
       }),
     [form.category],
   );
@@ -1131,6 +1190,28 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
     });
   }
 
+  function selectApplianceModel(value: string) {
+    const model = applianceModels.find((item) => item.key === value);
+    setValidationError("");
+    setForm((current) => ({
+      ...current,
+      maker: model?.manufacturer || "",
+      modelName: model?.modelName || "",
+      modelNumber: model?.modelNumber || "",
+      symptom: "",
+      repairType: "",
+    }));
+  }
+
+  function selectApplianceSymptom(symptom: string) {
+    setValidationError("");
+    setForm((current) => ({
+      ...current,
+      symptom,
+      repairType: "",
+    }));
+  }
+
   function addSwitchModel(modelName: string) {
     if (!modelName) {
       return;
@@ -1295,6 +1376,10 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
       setValidationError(error);
       return;
     }
+    if (isAppliance && applianceCandidates.length === 0) {
+      setValidationError("選択した機種と症状に一致する修理候補がありません。");
+      return;
+    }
 
     const estimateForm =
       form.category === "Switch"
@@ -1306,6 +1391,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
       selectedAndroidModel,
       switchRows,
       androidRepairMenus: selectedAndroidRepairMenus,
+      applianceRows: applianceCandidates,
     });
 
     setValidationError("");
@@ -1363,6 +1449,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
           selectedOptions: current.selectedOptions,
           switchRepairLines: current.switchRepairLines,
           switchOptionLines: current.switchOptionLines,
+          applianceRows: current.applianceCandidates,
           switchStockCheck: nextStockCheck,
         }),
       };
@@ -1404,6 +1491,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
           selectedOptions: getSelectedOptionsForForm(nextForm, androidOptions),
           switchRepairLines: current.switchRepairLines,
           switchOptionLines: current.switchOptionLines,
+          applianceRows: current.applianceCandidates,
           switchStockCheck: current.switchStockCheck,
         }),
       };
@@ -1422,6 +1510,17 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
         modelName: createInquiryModelName(confirmedEstimate),
         repairType: confirmedEstimate.quote.repairType,
         status: orderStatus,
+        category: confirmedEstimate.form.category,
+        maker: confirmedEstimate.form.maker,
+        modelNumber: confirmedEstimate.quote.modelNumber,
+        symptom: confirmedEstimate.quote.symptom,
+        price: confirmedEstimate.estimateText,
+        supportStatus:
+          confirmedEstimate.quote.status ||
+          confirmedEstimate.quote.receptionStatus,
+        note: confirmedEstimate.quote.note,
+        customerMessage: confirmedEstimate.customerMessage,
+        reservationCopy: confirmedEstimate.reservationCopy,
       });
       setSaveFeedback({
         tone: "success",
@@ -1469,6 +1568,17 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
           modelName: createInquiryModelName(confirmedEstimate),
           repairType: confirmedEstimate.quote.repairType,
           status: "受注",
+          category: confirmedEstimate.form.category,
+          maker: confirmedEstimate.form.maker,
+          modelNumber: confirmedEstimate.quote.modelNumber,
+          symptom: confirmedEstimate.quote.symptom,
+          price: confirmedEstimate.estimateText,
+          supportStatus:
+            confirmedEstimate.quote.status ||
+            confirmedEstimate.quote.receptionStatus,
+          note: confirmedEstimate.quote.note,
+          customerMessage: confirmedEstimate.customerMessage,
+          reservationCopy: confirmedEstimate.reservationCopy,
         });
         savedReceptionFingerprintsRef.current.add(fingerprint);
       }
@@ -1573,6 +1683,8 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
                       ? "機種と台数、端末ごとの症状または修理内容を順番に入力してください。"
                       : isPc
                         ? "端末情報と修理内容を順番に選択してください。"
+                        : isAppliance
+                          ? "機種と症状を順番に選択してください。"
                         : "メーカー、機種、修理内容を順番に選択してください。"}
                   </p>
                 </div>
@@ -1734,6 +1846,62 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
                         </>
                       ) : null}
                     </div>
+                  </Field>
+                </>
+              ) : isAppliance ? (
+                <>
+                  <p className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-900">
+                    {isDyson
+                      ? "Dysonの機種と症状を選択すると、想定される修理内容と料金を確認できます。"
+                      : "Roombaのシリーズと症状・エラーコードを選択すると、想定される修理内容と料金を確認できます。"}
+                  </p>
+                  <Field
+                    label="機種を選択"
+                    step="STEP 1"
+                    requirement="必須"
+                    completed={Boolean(form.modelName)}
+                  >
+                    <select
+                      value={createApplianceModelKey(form.modelName, form.modelNumber)}
+                      onChange={(event) => selectApplianceModel(event.target.value)}
+                      className="min-h-12 w-full rounded-lg border border-slate-300 bg-white px-4 text-base outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                    >
+                      <option value="">機種を選択してください</option>
+                      {applianceModels.map((model) => (
+                        <option key={model.key} value={model.key}>
+                          {formatApplianceModel(model.modelName, model.modelNumber)}
+                        </option>
+                      ))}
+                    </select>
+                    {applianceModels.length === 0 ? (
+                      <p className="mt-2 text-sm text-amber-700">
+                        このカテゴリの見積マスターは登録されていません。
+                      </p>
+                    ) : null}
+                  </Field>
+                  <Field
+                    label={getApplianceSymptomLabel(applianceSymptoms)}
+                    step="STEP 2"
+                    requirement="必須"
+                    completed={Boolean(form.symptom)}
+                  >
+                    <select
+                      value={form.symptom}
+                      disabled={!form.modelName}
+                      onChange={(event) => selectApplianceSymptom(event.target.value)}
+                      className="min-h-12 w-full rounded-lg border border-slate-300 bg-white px-4 text-base outline-none disabled:bg-slate-100 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                    >
+                      <option value="">
+                        {form.modelName
+                          ? `${getApplianceSymptomLabel(applianceSymptoms)}してください`
+                          : "先に機種を選択してください"}
+                      </option>
+                      {applianceSymptoms.map((item) => (
+                        <option key={item.symptom} value={item.symptom}>
+                          {item.symptom}
+                        </option>
+                      ))}
+                    </select>
                   </Field>
                 </>
               ) : (
@@ -1981,7 +2149,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
               <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
                 <div className="mb-3 flex min-w-0 flex-wrap items-center gap-2">
                   <StepBadge>
-                    {isSwitch ? `STEP ${switchEstimateStepNumber}` : isPc ? (form.category === "Windows PC" ? "STEP 4" : "STEP 3") : "STEP 5"}
+                    {isSwitch ? `STEP ${switchEstimateStepNumber}` : isPc ? (form.category === "Windows PC" ? "STEP 4" : "STEP 3") : isAppliance ? "STEP 3" : "STEP 5"}
                   </StepBadge>
                   <span className="text-sm font-bold text-slate-950">見積作成</span>
                 </div>
@@ -2019,6 +2187,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
             unsupportedAndroidRepairLabels={
               displayEstimate.unsupportedAndroidRepairLabels
             }
+            applianceCandidates={displayEstimate.applianceCandidates}
             leadTime={displayEstimate.leadTime}
             workTime={displayEstimate.workTime}
             priceBreakdown={displayEstimate.priceBreakdown}
@@ -2083,6 +2252,7 @@ function EstimatePanel({
   switchRepairLines,
   switchOptionLines,
   unsupportedAndroidRepairLabels,
+  applianceCandidates,
   leadTime,
   workTime,
   priceBreakdown,
@@ -2121,6 +2291,7 @@ function EstimatePanel({
   switchRepairLines: SwitchEstimateLine[];
   switchOptionLines: SwitchOptionLine[];
   unsupportedAndroidRepairLabels: string[];
+  applianceCandidates: DysonRoombaEstimateMasterRow[];
   leadTime: string;
   workTime: string;
   priceBreakdown: string[];
@@ -2141,6 +2312,7 @@ function EstimatePanel({
   const isSwitch = form.category === "Switch";
   const isAndroid = form.category === "Android";
   const isPc = form.category === "Windows PC" || form.category === "MacBook";
+  const isAppliance = form.category === "Dyson" || form.category === "Roomba";
   const isAndroidPowerFailureOnly =
     isAndroid &&
     form.selectedAndroidRepairKeys.length === 1 &&
@@ -2164,7 +2336,7 @@ function EstimatePanel({
           }
         : saveFeedback;
   const staffNotes = [
-    quote.note,
+    isAppliance ? "" : quote.note,
     isAndroid && quote.status && quote.status !== "店舗対応可"
       ? quote.status
       : "",
@@ -2255,6 +2427,66 @@ function EstimatePanel({
             <p className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm font-semibold text-slate-800">故障箇所や基板の状態によって料金が変動します。</p>
           ) : null}
         </>
+      ) : isAppliance ? (
+        <>
+          <section className="mt-4">
+            <h3 className="text-base font-bold text-slate-950">見積概要</h3>
+            <dl className="mt-3 grid min-w-0 gap-3 sm:grid-cols-2">
+              <InfoRow label="機種" value={quote.modelName} />
+              <InfoRow label="型番" value={quote.modelNumber || "-"} />
+              <InfoRow label="症状" value={quote.symptom} />
+              {applianceCandidates.length === 1 ? (
+                <>
+                  <InfoRow label="想定修理内容" value={quote.repairType} />
+                  <InfoRow label="価格" value={estimateText} strong />
+                  <InfoRow label="納期" value={leadTime} />
+                  <InfoRow label="受付状態" value={quote.status} />
+                </>
+              ) : null}
+            </dl>
+            {applianceCandidates.length > 1 ? (
+              <div className="mt-3 grid gap-3">
+                {applianceCandidates.map((candidate, index) => (
+                  <section
+                    key={createApplianceCandidateId(candidate)}
+                    className="rounded-lg border border-slate-200 bg-slate-50 p-4"
+                  >
+                    <h4 className="font-bold text-slate-950">
+                      {index + 1}. {candidate.estimatedRepairType || "修理内容は要確認"}
+                    </h4>
+                    <dl className="mt-3 grid min-w-0 gap-3 sm:grid-cols-2">
+                      <InfoRow
+                        label="想定修理内容"
+                        value={candidate.estimatedRepairType || "要確認"}
+                      />
+                      <InfoRow label="価格" value={formatAppliancePrice(candidate.price)} strong />
+                      <InfoRow label="納期" value={candidate.leadTime || "要確認"} />
+                      <InfoRow
+                        label="受付状態"
+                        value={normalizeApplianceReceptionStatus(candidate.receptionStatus)}
+                      />
+                    </dl>
+                  </section>
+                ))}
+              </div>
+            ) : null}
+          </section>
+          {applianceCandidates.some((candidate) => candidate.note) ? (
+            <section className="mt-4 min-w-0 overflow-hidden rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-7 text-amber-950">
+              <h3 className="font-bold">スタッフ向け注意</h3>
+              <div className="mt-2 grid min-w-0 gap-2 whitespace-pre-wrap break-words">
+                {applianceCandidates.map((candidate, index) =>
+                  candidate.note ? (
+                    <div key={createApplianceCandidateId(candidate)}>
+                      {applianceCandidates.length > 1 ? `${index + 1}. ` : ""}
+                      {candidate.note}
+                    </div>
+                  ) : null,
+                )}
+              </div>
+            </section>
+          ) : null}
+        </>
       ) : (
         <dl className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2">
           <InfoRow label="機種名" value={quote.modelName} />
@@ -2268,7 +2500,7 @@ function EstimatePanel({
         </dl>
       )}
 
-      {hasConfirmedEstimate && !isAndroidPowerFailureOnly && staffNotes.length > 0 ? (
+      {hasConfirmedEstimate && !isAppliance && !isAndroidPowerFailureOnly && staffNotes.length > 0 ? (
         <section className="mt-4 min-w-0 overflow-hidden rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
           <h3 className="font-bold">▼ スタッフ向け注意</h3>
           <div className="mt-2 min-w-0 whitespace-pre-wrap break-words">
@@ -2279,71 +2511,75 @@ function EstimatePanel({
 
       {hasConfirmedEstimate ? (
         <>
-          <section className="mt-5 min-w-0 overflow-hidden">
-            <h3 className="text-base font-bold text-slate-950">
-              お客様へのご案内文
-            </h3>
-            {showSwitchStockCheck ? (
-              <div className="mt-3 grid min-w-0 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setStockCheckOpen(true)}
-                  className="min-h-11 w-full rounded-md bg-indigo-600 px-4 text-sm font-bold text-white transition hover:bg-indigo-700 sm:w-auto"
-                >
-                  パーツ在庫確認、対応可否確認
-                </button>
-                <section className="rounded-md border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-semibold leading-6 text-blue-900">
-                  <h4 className="font-bold">パーツ在庫・対応可否：</h4>
-                  {switchStockCheck ? (
-                    <div className="mt-1 grid gap-1">
-                      {formatSwitchStockCheckSummaryLines(
-                        switchStockCheck,
-                        switchRepairLines,
-                      ).map((line) => (
-                        <div key={line} className="min-w-0 break-words">
-                          ・{line}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="mt-1">未確認</p>
-                  )}
-                </section>
-              </div>
-            ) : null}
-            <pre className="mt-3 min-h-48 max-w-full overflow-hidden whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-4 font-sans text-base leading-7 text-slate-800">
-              {customerMessage}
-            </pre>
-            {isAndroid && unsupportedAndroidRepairLabels.length > 0 ? (
-              <section className="mt-3 min-w-0 overflow-hidden rounded-lg border border-yellow-300 bg-yellow-50 p-4 text-sm leading-6 text-yellow-950 dark:border-yellow-700 dark:bg-yellow-950 dark:text-yellow-100">
-                <h4 className="font-bold">スタッフ向けメモ</h4>
-                <div className="mt-2 min-w-0 break-words">
-                  <p>以下の修理は受付対象外です。</p>
-                  <ul className="mt-1">
-                    {unsupportedAndroidRepairLabels.map((label) => (
-                      <li key={label}>・{label}</li>
-                    ))}
-                  </ul>
-                  <p className="mt-2">
-                    お客様へドナー修理をご提案してください。
-                  </p>
+          {!isAppliance ? (
+            <section className="mt-5 min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-4">
+              <h3 className="text-base font-bold text-slate-950">
+                お客様へのご案内文
+              </h3>
+              {showSwitchStockCheck ? (
+                <div className="mt-3 grid min-w-0 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setStockCheckOpen(true)}
+                    className="min-h-11 w-full rounded-md bg-indigo-600 px-4 text-sm font-bold text-white transition hover:bg-indigo-700 sm:w-auto"
+                  >
+                    パーツ在庫確認、対応可否確認
+                  </button>
+                  <section className="rounded-md border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-semibold leading-6 text-blue-900">
+                    <h4 className="font-bold">パーツ在庫・対応可否：</h4>
+                    {switchStockCheck ? (
+                      <div className="mt-1 grid gap-1">
+                        {formatSwitchStockCheckSummaryLines(
+                          switchStockCheck,
+                          switchRepairLines,
+                        ).map((line) => (
+                          <div key={line} className="min-w-0 break-words">
+                            ・{line}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-1">未確認</p>
+                    )}
+                  </section>
                 </div>
-              </section>
-            ) : null}
-          </section>
+              ) : null}
+              <pre className="mt-3 min-h-48 max-w-full overflow-hidden whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-5 font-sans text-base leading-8 text-slate-800">
+                {customerMessage}
+              </pre>
+              {isAndroid && unsupportedAndroidRepairLabels.length > 0 ? (
+                <section className="mt-3 min-w-0 overflow-hidden rounded-lg border border-yellow-300 bg-yellow-50 p-4 text-sm leading-6 text-yellow-950 dark:border-yellow-700 dark:bg-yellow-950 dark:text-yellow-100">
+                  <h4 className="font-bold">スタッフ向けメモ</h4>
+                  <div className="mt-2 min-w-0 break-words">
+                    <p>以下の修理は受付対象外です。</p>
+                    <ul className="mt-1">
+                      {unsupportedAndroidRepairLabels.map((label) => (
+                        <li key={label}>・{label}</li>
+                      ))}
+                    </ul>
+                    <p className="mt-2">
+                      お客様へドナー修理をご提案してください。
+                    </p>
+                  </div>
+                </section>
+              ) : null}
+            </section>
+          ) : null}
 
           <div className="mt-5 grid min-w-0 gap-3">
             <div className="grid min-w-0 gap-3 sm:grid-cols-3">
               <CopyButton
                 copyKey="customer"
                 copiedKey={copiedKey}
-                label="案内文コピー"
+                label={isAppliance ? "お客様案内文をコピー" : "案内文コピー"}
+                successLabel={isAppliance ? "コピーしました" : undefined}
                 onCopy={() => onCopy("customer", customerMessage)}
               />
               <CopyButton
                 copyKey="reservation"
                 copiedKey={copiedKey}
-                label="予約管理用コピー"
+                label={isAppliance ? "受付内容をコピー" : "予約管理用コピー"}
+                successLabel={isAppliance ? "コピーしました" : undefined}
                 onCopy={() => onCopy("reservation", reservationCopy)}
               />
               <button
@@ -2424,6 +2660,8 @@ function EstimateEmptyState({
         ? ["メーカーを選択", "端末タイプを選択", "修理内容を選択", "見積作成を押す"]
         : category === "MacBook"
           ? ["MacBook機種を検索・選択", "修理内容を選択", "見積作成を押す"]
+          : isApplianceCategory(category)
+            ? ["機種を選択", "症状を選択", "見積作成を押す"]
       : [
           "メーカーを選択",
           "機種を選択",
@@ -5867,11 +6105,13 @@ function InfoRow({
 
 function CopyButton({
   label,
+  successLabel = "コピー済み",
   copyKey,
   copiedKey,
   onCopy,
 }: {
   label: string;
+  successLabel?: string;
   copyKey: string;
   copiedKey: string;
   onCopy: () => void;
@@ -5882,7 +6122,7 @@ function CopyButton({
       onClick={onCopy}
       className="min-h-11 w-full min-w-0 rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
     >
-      {copiedKey === copyKey ? "コピー済み" : label}
+      {copiedKey === copyKey ? successLabel : label}
     </button>
   );
 }
@@ -5999,25 +6239,100 @@ function formatMacBookPrice(price: MacBookRepairPrice) {
   return `${formatTaxIncludedYen(Number(price.slice(0, -1)))}〜`;
 }
 
+function createDysonRoombaEstimate(
+  form: FormState,
+  rows: DysonRoombaEstimateMasterRow[],
+) {
+  const numericPrices = rows
+    .map((row) => parseAppliancePrice(row.price))
+    .filter((price): price is number => price !== null);
+  const isSingleCandidate = rows.length === 1;
+  const singlePrice = isSingleCandidate ? numericPrices[0] : undefined;
+  const leadTimes = uniqueValues(rows.map((row) => row.leadTime).filter(Boolean));
+  const notes = uniqueValues(rows.map((row) => row.note).filter(Boolean));
+  const statuses = rows.map((row) =>
+    normalizeApplianceReceptionStatus(row.receptionStatus),
+  );
+  const status = getStrictestApplianceStatus(statuses);
+  const repairTypes = uniqueValues(
+    rows.map((row) => row.estimatedRepairType).filter(Boolean),
+  );
+  const estimateText = isSingleCandidate
+    ? singlePrice === undefined
+      ? "要確認"
+      : formatTaxIncludedYen(singlePrice)
+    : "候補ごとに記載";
+  const leadTime = leadTimes.join("、") || "要確認";
+  const quote: EstimateQuote = {
+    modelName: form.modelName,
+    modelNumber: form.modelNumber,
+    symptom: form.symptom,
+    repairType: repairTypes.join("、"),
+    price: singlePrice ?? estimateText,
+    status,
+    note: notes.join("\n"),
+    receptionStatus: status,
+  };
+  const modelLabel = formatApplianceCustomerModel(
+    form.category,
+    form.modelName,
+    form.modelNumber,
+  );
+  const customerMessage = [
+    `機種名・型番：${modelLabel}`,
+    `症状：${form.symptom}`,
+    ...(rows.length > 1
+      ? [
+          "考えられる修理候補：",
+          ...rows.flatMap((row, index) => [
+          `${index + 1}. 想定修理内容：${row.estimatedRepairType || "要確認"}`,
+          `見積金額：${formatAppliancePrice(row.price)}`,
+          `納期：${row.leadTime || "要確認"}`,
+          `受付状態：${normalizeApplianceReceptionStatus(row.receptionStatus)}`,
+          getApplianceReceptionGuidance(row.receptionStatus),
+          ...(row.note ? [`案内文補足：${row.note}`] : []),
+          ]),
+        ]
+      : [
+          `想定修理内容：${repairTypes[0] || "要確認"}`,
+          `見積金額：${estimateText}`,
+          `納期：${leadTime}`,
+          `受付状態：${status}`,
+          getApplianceReceptionGuidance(status),
+          ...(notes.length > 0 ? [`案内文補足：${notes.join("\n")}`] : []),
+        ]),
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return { quote, estimateText, customerMessage, leadTime };
+}
+
 function createEstimateResult({
   form,
   selectedOptions,
   selectedAndroidModel,
   switchRows,
   androidRepairMenus,
+  applianceRows = [],
 }: {
   form: FormState;
   selectedOptions: NormalizedOption[];
   selectedAndroidModel: AndroidPriceMasterItem | undefined;
   switchRows: SwitchEstimateMasterItem[];
   androidRepairMenus: AndroidRepairMenuItem[];
+  applianceRows?: DysonRoombaEstimateMasterRow[];
 }): ConfirmedEstimate {
   const isSwitch = form.category === "Switch";
   const isAndroid = form.category === "Android";
   const isPc = form.category === "Windows PC" || form.category === "MacBook";
+  const isAppliance = form.category === "Dyson" || form.category === "Roomba";
   const isOtherAndroidManufacturer =
     isAndroid && form.maker === OTHER_ANDROID_MANUFACTURER;
   const pcEstimate = isPc ? createPcEstimate(form) : null;
+  const applianceEstimate = isAppliance
+    ? createDysonRoombaEstimate(form, applianceRows)
+    : null;
   const switchRepairLines = isSwitch ? createSwitchRepairLines(form, switchRows) : [];
   const switchOptionLines = isSwitch
     ? createSwitchOptionLines(form, selectedOptions)
@@ -6045,6 +6360,8 @@ function createEstimateResult({
       }
     : pcEstimate
       ? pcEstimate.quote
+      : applianceEstimate
+        ? applianceEstimate.quote
       : {
         modelName: isOtherAndroidManufacturer
           ? form.modelName || OTHER_ANDROID_MODEL_FALLBACK
@@ -6065,6 +6382,8 @@ function createEstimateResult({
       ? formatSwitchTotalEstimate(switchTotal, switchHasVariable)
       : pcEstimate
         ? pcEstimate.estimateText
+        : applianceEstimate
+          ? applianceEstimate.estimateText
       : androidRepairMenus.length === 1 &&
           androidRepairMenus[0]?.key === ANDROID_POWER_FAILURE_MENU_KEY
         ? getAndroidPowerFailureEstimate(androidRepairMenus)
@@ -6079,6 +6398,8 @@ function createEstimateResult({
       })
     : pcEstimate
       ? pcEstimate.customerMessage
+      : applianceEstimate
+        ? applianceEstimate.customerMessage
       : createAndroidMultipleRepairCustomerMessage({
         modelName: quote.modelName,
         menus: androidRepairMenus,
@@ -6092,6 +6413,7 @@ function createEstimateResult({
     selectedOptions,
     switchRepairLines,
     switchOptionLines,
+    applianceRows,
   });
 
   return {
@@ -6117,7 +6439,8 @@ function createEstimateResult({
         .filter((menu) => menu.isUnsupported)
         .map((menu) => menu.label),
     ),
-    leadTime: pcEstimate?.leadTime || "",
+    applianceCandidates: applianceRows.map((row) => ({ ...row })),
+    leadTime: pcEstimate?.leadTime || applianceEstimate?.leadTime || "",
     workTime: pcEstimate?.workTime || "",
     priceBreakdown: pcEstimate?.priceBreakdown || [],
   };
@@ -6130,6 +6453,7 @@ function createReservationCopy({
   selectedOptions,
   switchRepairLines,
   switchOptionLines,
+  applianceRows = [],
   switchStockCheck,
 }: {
   form: FormState;
@@ -6138,11 +6462,13 @@ function createReservationCopy({
   selectedOptions: NormalizedOption[];
   switchRepairLines: SwitchEstimateLine[];
   switchOptionLines: SwitchOptionLine[];
+  applianceRows?: DysonRoombaEstimateMasterRow[];
   switchStockCheck?: SwitchStockCheckByLine;
 }) {
   const isSwitch = form.category === "Switch";
   const isAndroid = form.category === "Android";
   const isPc = form.category === "Windows PC" || form.category === "MacBook";
+  const isAppliance = form.category === "Dyson" || form.category === "Roomba";
   const isOtherAndroidManufacturer =
     isAndroid && form.maker === OTHER_ANDROID_MANUFACTURER;
   const isAndroidPowerFailureOnly =
@@ -6201,6 +6527,51 @@ function createReservationCopy({
       `対応区分: ${quote.status}`,
       `納期: ${pcEstimate.leadTime}`,
       `作業時間: ${pcEstimate.workTime}`,
+    ].join("\n");
+  }
+
+  if (isAppliance) {
+    const multipleCandidates = applianceRows.length > 1;
+    const repairType = multipleCandidates
+      ? applianceRows
+          .map((row, index) => `${index + 1}. ${row.estimatedRepairType || "要確認"}`)
+          .join(" / ")
+      : quote.repairType;
+    const price = multipleCandidates
+      ? applianceRows
+          .map((row, index) => `${index + 1}. ${formatAppliancePrice(row.price)}`)
+          .join(" / ")
+      : estimateText;
+    const supportStatus = multipleCandidates
+      ? applianceRows
+          .map(
+            (row, index) =>
+              `${index + 1}. ${normalizeApplianceReceptionStatus(row.receptionStatus)}`,
+          )
+          .join(" / ")
+      : quote.status;
+    const leadTime = multipleCandidates
+      ? applianceRows
+          .map((row, index) => `${index + 1}. ${row.leadTime || "要確認"}`)
+          .join(" / ")
+      : applianceRows[0]?.leadTime || "要確認";
+    const guidance = applianceRows
+      .map((row, index) =>
+        row.note ? `${multipleCandidates ? `${index + 1}. ` : ""}${row.note}` : "",
+      )
+      .filter(Boolean);
+    return [
+      `ステータス: ${form.orderStatus}`,
+      `カテゴリ: ${form.category}`,
+      `メーカー: ${form.maker || "なし"}`,
+      `機種名: ${quote.modelName}`,
+      `型番: ${quote.modelNumber || "なし"}`,
+      `症状: ${quote.symptom}`,
+      `想定修理内容: ${repairType}`,
+      `見積金額: ${price}`,
+      `対応区分: ${supportStatus}`,
+      `納期: ${leadTime}`,
+      ...(guidance.length > 0 ? [`案内文補足: ${guidance.join("\n")}`] : []),
     ].join("\n");
   }
 
@@ -6271,6 +6642,13 @@ function createAdminReportTargetModel(
       : estimate.quote.modelName;
   }
 
+  if (isApplianceCategory(form.category)) {
+    return formatApplianceModel(
+      form.modelName || estimate.quote.modelName,
+      form.modelNumber || estimate.quote.modelNumber,
+    );
+  }
+
   return form.modelName || estimate.quote.modelName || "";
 }
 
@@ -6293,6 +6671,12 @@ function createAdminReportTargetRepairOrSymptom(
       : [estimate.quote.symptom, estimate.quote.repairType]
           .filter(Boolean)
           .join("\n");
+  }
+
+  if (isApplianceCategory(form.category)) {
+    return [form.symptom || estimate.quote.symptom, estimate.quote.repairType]
+      .filter(Boolean)
+      .join(" / ");
   }
 
   return form.repairType || estimate.quote.repairType || "";
@@ -6326,6 +6710,18 @@ function createAdminReportEstimateSummary(estimate: ConfirmedEstimate) {
             ),
           ]
         : []),
+    ].join("\n");
+  }
+
+  if (isApplianceCategory(estimate.form.category)) {
+    return [
+      `カテゴリ: ${estimate.form.category}`,
+      `機種: ${formatApplianceModel(estimate.quote.modelName, estimate.quote.modelNumber)}`,
+      `症状・エラーコード: ${estimate.quote.symptom}`,
+      `想定修理内容: ${estimate.quote.repairType}`,
+      `見積金額: ${estimate.estimateText}`,
+      `受付状態: ${estimate.quote.status}`,
+      `納期・案内文補足: ${estimate.quote.note || "なし"}`,
     ].join("\n");
   }
 
@@ -7410,7 +7806,11 @@ function estimateInputMatches(current: FormState, confirmed: FormState) {
       current.switchOptionSelections,
       confirmed.switchOptionSelections,
     ) &&
-    sameStringList(current.selectedOptionKeys, confirmed.selectedOptionKeys)
+    sameStringList(current.selectedOptionKeys, confirmed.selectedOptionKeys) &&
+    sameStringList(
+      current.selectedAndroidRepairKeys,
+      confirmed.selectedAndroidRepairKeys,
+    )
   );
 }
 
@@ -7568,6 +7968,16 @@ function validateEstimateForm(form: FormState) {
       !form.repairType ? "修理内容" : "",
     ].filter(Boolean);
     return missingItems.length > 0 ? `${missingItems.join("、")}を選択してください。` : "";
+  }
+
+  if (isApplianceCategory(form.category)) {
+    const missingItems = [
+      !form.modelName ? "機種" : "",
+      !form.symptom ? "症状" : "",
+    ].filter(Boolean);
+    return missingItems.length > 0
+      ? `${missingItems.join("、")}を選択してください。`
+      : "";
   }
 
   if (form.category !== "Switch") {
@@ -9404,6 +9814,155 @@ function uniqueValues(values: string[]) {
   return Array.from(new Set(values.map(stringValue).filter(Boolean)));
 }
 
+function isApplianceCategory(category: InquiryCategory) {
+  return category === "Dyson" || category === "Roomba";
+}
+
+function createApplianceModelKey(modelName: string, modelNumber: string) {
+  return `${modelName}\t${modelNumber}`;
+}
+
+function formatApplianceModel(modelName: string, modelNumber: string) {
+  return modelNumber ? `${modelName}（${modelNumber}）` : modelName;
+}
+
+function formatApplianceCustomerModel(
+  category: InquiryCategory,
+  modelName: string,
+  modelNumber: string,
+) {
+  const categoryPattern =
+    category === "Dyson" ? /^(?:Dyson|ダイソン)\s*/i : /^(?:Roomba|ルンバ)\s*/i;
+  const normalizedModelName = modelName.replace(categoryPattern, "").trim();
+  const includesModelNumber =
+    Boolean(modelNumber) && normalizedModelName.includes(modelNumber);
+  const modelDetails = normalizedModelName
+    ? formatApplianceModel(
+        normalizedModelName,
+        includesModelNumber ? "" : modelNumber,
+      )
+    : modelNumber;
+  return [category, modelDetails].filter(Boolean).join(" ");
+}
+
+function uniqueApplianceModels(rows: DysonRoombaEstimateMasterRow[]) {
+  const models = new Map<
+    string,
+    {
+      key: string;
+      manufacturer: string;
+      modelName: string;
+      modelNumber: string;
+      sortOrder: number | string;
+    }
+  >();
+  rows.forEach((row) => {
+    const key = createApplianceModelKey(row.modelName, row.modelNumber);
+    if (!row.modelName || models.has(key)) return;
+    models.set(key, {
+      key,
+      manufacturer: row.manufacturer,
+      modelName: row.modelName,
+      modelNumber: row.modelNumber,
+      sortOrder: row.sortOrder,
+    });
+  });
+  return [...models.values()].sort(
+    (a, b) =>
+      compareSortOrder(a, b) ||
+      a.modelName.localeCompare(b.modelName, "ja") ||
+      a.modelNumber.localeCompare(b.modelNumber, "ja"),
+  );
+}
+
+function uniqueApplianceSymptoms(rows: DysonRoombaEstimateMasterRow[]) {
+  const symptoms = new Map<
+    string,
+    { symptom: string; symptomSelectionType: string; sortOrder: number | string }
+  >();
+  rows.forEach((row) => {
+    if (!row.symptom) return;
+    const current = symptoms.get(row.symptom);
+    if (!current || compareSortOrder(row, current) < 0) {
+      symptoms.set(row.symptom, {
+        symptom: row.symptom,
+        symptomSelectionType: row.symptomSelectionType,
+        sortOrder: row.sortOrder,
+      });
+    }
+  });
+  return [...symptoms.values()].sort(
+    (a, b) =>
+      compareSortOrder(a, b) || a.symptom.localeCompare(b.symptom, "ja"),
+  );
+}
+
+function getApplianceSymptomLabel(
+  symptoms: { symptomSelectionType: string }[],
+) {
+  const types = symptoms.map((item) => item.symptomSelectionType).join(" ");
+  if (/エラー/.test(types)) return "エラーコードを選択";
+  if (/修理内容/.test(types)) return "修理内容を選択";
+  return "症状を選択";
+}
+
+function createApplianceCandidateId(row: DysonRoombaEstimateMasterRow) {
+  return [
+    row.rowNumber,
+    row.category,
+    row.modelName,
+    row.modelNumber,
+    row.symptom,
+    row.candidateGroupId,
+    row.estimatedRepairType,
+  ].join("\t");
+}
+
+function parseAppliancePrice(value: number | string) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  const normalized = value.replace(/[,\s円￥¥]/g, "");
+  if (!normalized) return null;
+  const price = Number(normalized);
+  return Number.isFinite(price) ? price : null;
+}
+
+function formatAppliancePrice(value: number | string) {
+  const price = parseAppliancePrice(value);
+  return price === null ? "要確認" : formatTaxIncludedYen(price);
+}
+
+function normalizeApplianceReceptionStatus(value: string) {
+  const normalized = value.trim();
+  if (/非対応|対応不可/.test(normalized)) return "非対応";
+  if (/停止|休止/.test(normalized)) return "受付停止中";
+  if (/要確認|確認/.test(normalized)) return "要確認";
+  if (/受付中|受付可能|受付可|対応可/.test(normalized)) return "受付中";
+  return normalized || "要確認";
+}
+
+function getStrictestApplianceStatus(statuses: string[]) {
+  const priority = ["非対応", "受付停止中", "要確認", "受付中"];
+  return (
+    priority.find((status) => statuses.includes(status)) ||
+    statuses.find(Boolean) ||
+    "要確認"
+  );
+}
+
+function getApplianceReceptionGuidance(status: string) {
+  const normalized = normalizeApplianceReceptionStatus(status);
+  if (normalized === "受付中") return "現在受付可能です。";
+  if (normalized === "要確認") {
+    return "料金・納期・修理可否は端末確認後に確定します。";
+  }
+  if (normalized === "受付停止中" || normalized === "非対応") {
+    return "現在この修理は受付を停止しています。";
+  }
+  return `受付状態は「${normalized}」です。詳細は端末確認後にご案内します。`;
+}
+
 function createSwitchEstimatedRepairTypeOptions(
   rows: SwitchEstimateMasterItem[],
   symptom: string,
@@ -9689,6 +10248,8 @@ async function fetchInitialData(): Promise<InitialData> {
   return {
     priceMaster: result.data?.priceMaster ?? [],
     switchEstimateMaster: result.data?.switchEstimateMaster ?? [],
+    dysonRoombaEstimateMaster:
+      result.data?.dysonRoombaEstimateMaster ?? [],
     repairItemMaster: result.data?.repairItemMaster ?? [],
     androidModelRepairSettings: result.data?.androidModelRepairSettings ?? [],
     staffList: result.data?.staffList ?? [],
@@ -9741,6 +10302,15 @@ async function saveInquiry({
   modelName,
   repairType,
   status,
+  category,
+  maker,
+  modelNumber,
+  symptom,
+  price,
+  supportStatus,
+  note,
+  customerMessage,
+  reservationCopy,
 }: {
   storeName: string;
   loginEmail: string;
@@ -9748,6 +10318,15 @@ async function saveInquiry({
   modelName: string;
   repairType: string;
   status: OrderStatus;
+  category: InquiryCategory;
+  maker: string;
+  modelNumber: string;
+  symptom: string;
+  price: string;
+  supportStatus: string;
+  note: string;
+  customerMessage: string;
+  reservationCopy: string;
 }) {
   const apiUrl = process.env.NEXT_PUBLIC_APPS_SCRIPT_API_URL;
 
@@ -9769,6 +10348,15 @@ async function saveInquiry({
         modelName,
         repairType,
         status,
+        category,
+        maker,
+        modelNumber,
+        symptom,
+        price,
+        supportStatus,
+        note,
+        customerMessage,
+        reservationCopy,
       },
     }),
   });

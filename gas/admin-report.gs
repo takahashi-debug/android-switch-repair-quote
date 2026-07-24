@@ -1,5 +1,6 @@
 const ANDROID_MASTER_SHEET_NAME = "RepairQuote価格マスター";
 const SWITCH_MASTER_SHEET_NAME = "Switch症状見積もりマスター";
+const DYSON_ROOMBA_MASTER_SHEET_NAME = "Dyson・Roomba見積マスター";
 const OPTION_MASTER_SHEET_NAME = "オプションマスター";
 const USER_MASTER_SHEET_NAME = "ユーザーマスター";
 const STAFF_MASTER_SHEET_NAME = "スタッフマスター";
@@ -72,6 +73,15 @@ const INQUIRY_HISTORY_HEADERS = [
   "機種名",
   "修理内容",
   "対応結果",
+  "カテゴリ",
+  "メーカー",
+  "型番",
+  "症状",
+  "見積金額",
+  "対応区分",
+  "備考",
+  "お客様案内文",
+  "予約コピー",
 ];
 
 const ADMIN_REPORT_HEADERS = [
@@ -261,6 +271,7 @@ function doPost(e) {
 function getInitialData() {
   const priceMasterResult = getPriceMaster();
   const switchEstimateMasterResult = getSwitchEstimateMaster();
+  const dysonRoombaEstimateMasterResult = getDysonRoombaEstimateMaster();
   const optionMasterResult = getOptionMaster();
   const userMasterResult = getUserMaster();
   const repairItemMasterResult = getRepairItemMaster();
@@ -272,6 +283,8 @@ function getInitialData() {
     data: {
       priceMaster: priceMasterResult.priceMaster || [],
       switchEstimateMaster: switchEstimateMasterResult.switchEstimateMaster || [],
+      dysonRoombaEstimateMaster:
+        dysonRoombaEstimateMasterResult.dysonRoombaEstimateMaster || [],
       repairItemMaster: repairItemMasterResult.repairItemMaster || [],
       androidModelRepairSettings:
         androidModelRepairSettingsResult.androidModelRepairSettings || [],
@@ -339,6 +352,48 @@ function getSwitchEstimateMaster() {
     ok: true,
     switchEstimateMaster: switchEstimateMaster,
     items: switchEstimateMaster,
+  };
+}
+
+function getDysonRoombaEstimateMaster() {
+  const sheet = getOptionalSheet_(DYSON_ROOMBA_MASTER_SHEET_NAME);
+
+  if (!sheet) {
+    return {
+      success: true,
+      ok: true,
+      dysonRoombaEstimateMaster: [],
+      items: [],
+    };
+  }
+
+  const rows = getDataRows_(sheet);
+  const dysonRoombaEstimateMaster = rows.map(function(row) {
+    return {
+      rowNumber: row.rowNumber,
+      category: row.text("カテゴリ", 0),
+      manufacturer: row.text("メーカー", 1),
+      modelName: row.text("機種名", 2),
+      modelNumber: row.text("型番", 3),
+      symptomSelectionType: row.text("症状選択種別", 4),
+      symptom: row.text("症状", 5),
+      candidateGroupId: row.text("候補グループID", 6),
+      estimatedRepairType: row.text("想定修理内容", 7),
+      price: row.value("価格", 8),
+      leadTime: row.text("納期", 9),
+      note: row.text("案内文補足", 10),
+      receptionStatus: row.text("受付状態", 11),
+      sortOrder: row.value("並び順", 12),
+    };
+  }).filter(function(item) {
+    return item.category || item.modelName || item.symptom || item.estimatedRepairType;
+  });
+
+  return {
+    success: true,
+    ok: true,
+    dysonRoombaEstimateMaster: dysonRoombaEstimateMaster,
+    items: dysonRoombaEstimateMaster,
   };
 }
 
@@ -448,6 +503,15 @@ function saveInquiry(payload) {
     payload.modelName || "",
     payload.repairType || "",
     payload.status || "",
+    payload.category || "",
+    payload.maker || "",
+    payload.modelNumber || "",
+    payload.symptom || "",
+    payload.price || "",
+    payload.supportStatus || "",
+    payload.note || "",
+    payload.customerMessage || "",
+    payload.reservationCopy || "",
   ]);
 
   return {

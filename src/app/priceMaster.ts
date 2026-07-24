@@ -30,6 +30,8 @@ export async function getInitialDataFromApi(): Promise<InitialData> {
   return {
     priceMaster: result.data?.priceMaster ?? [],
     switchEstimateMaster: result.data?.switchEstimateMaster ?? [],
+    dysonRoombaEstimateMaster:
+      result.data?.dysonRoombaEstimateMaster ?? [],
     repairItemMaster: result.data?.repairItemMaster ?? [],
     androidModelRepairSettings: result.data?.androidModelRepairSettings ?? [],
     staffList: result.data?.staffList ?? [],
