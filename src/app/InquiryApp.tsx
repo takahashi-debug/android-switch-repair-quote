@@ -944,7 +944,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
   }, [authUser?.storeName]);
 
   useEffect(() => {
-    if (!authUser || isAdmin || !isPc) return;
+    if (!authUser || isAdmin || !isAdminOnlyEstimateCategory(form.category)) return;
 
     setModelSearch("");
     setSelectedAndroidModelLabel("");
@@ -961,7 +961,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
       tone: "muted",
       message: DEVELOPMENT_UNAVAILABLE_MESSAGE,
     });
-  }, [authUser, isAdmin, isPc]);
+  }, [authUser, form.category, isAdmin]);
 
   async function submitLogin() {
     const normalizedEmail = normalizeEmail(loginEmailInput);
@@ -1083,7 +1083,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
   }
 
   function updateCategory(category: InquiryCategory) {
-    if (!isAdmin && isPcCategory(category)) {
+    if (!isAdmin && isAdminOnlyEstimateCategory(category)) {
       setReceptionTransitionFeedback({
         tone: "muted",
         message: DEVELOPMENT_UNAVAILABLE_MESSAGE,
@@ -1363,7 +1363,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
   }
 
   function createEstimate() {
-    if (!isAdmin && isPcCategory(form.category)) {
+    if (!isAdmin && isAdminOnlyEstimateCategory(form.category)) {
       setReceptionTransitionFeedback({
         tone: "muted",
         message: DEVELOPMENT_UNAVAILABLE_MESSAGE,
@@ -1459,8 +1459,8 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
   async function updateOrderStatus(orderStatus: OrderStatus) {
     if (
       !isAdmin &&
-      (isPcCategory(form.category) ||
-        (confirmedEstimate && isPcCategory(confirmedEstimate.form.category)))
+      (isAdminOnlyEstimateCategory(form.category) ||
+        (confirmedEstimate && isAdminOnlyEstimateCategory(confirmedEstimate.form.category)))
     ) {
       setSaveFeedback({
         tone: "muted",
@@ -1700,7 +1700,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
                 options={categories}
                 value={form.category}
                 getLabel={(category) => category === "Switch" ? "Nintendo Switch" : category}
-                isOptionDisabled={(category) => !isAdmin && isPcCategory(category)}
+                isOptionDisabled={(category) => !isAdmin && isAdminOnlyEstimateCategory(category)}
                 getDisabledLabel={() => "開発中"}
                 onChange={updateCategory}
               />
@@ -8036,8 +8036,8 @@ function validateEstimateForm(form: FormState) {
   return "";
 }
 
-function isPcCategory(category: InquiryCategory) {
-  return category === "Windows PC" || category === "MacBook";
+function isAdminOnlyEstimateCategory(category: InquiryCategory) {
+  return category === "Windows PC";
 }
 
 function isSwitchUnitInputComplete(unit: SwitchUnitInput) {
