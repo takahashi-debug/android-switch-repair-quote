@@ -10361,8 +10361,28 @@ async function saveInquiry({
     }),
   });
 
-  if (!response.ok) {
-    throw new Error(`Inquiry save failed with status ${response.status}.`);
+  let result: {
+    success?: boolean;
+    ok?: boolean;
+    error?: string;
+    message?: string;
+    rowNumber?: number;
+  };
+
+  try {
+    result = await response.json();
+  } catch {
+    throw new Error(
+      `Inquiry save returned an invalid response with status ${response.status}.`,
+    );
+  }
+
+  if (!response.ok || result.success !== true || result.ok !== true) {
+    throw new Error(
+      result.error ||
+        result.message ||
+        `Inquiry save failed with status ${response.status}.`,
+    );
   }
 }
 
