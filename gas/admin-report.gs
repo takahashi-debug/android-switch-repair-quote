@@ -181,9 +181,11 @@ function doGet(e) {
 }
 
 function doPost(e) {
+  let action = "";
+
   try {
     const body = parsePostBody_(e);
-    const action = body.action || getAction_(e);
+    action = body.action || getAction_(e);
     const payload = body.payload || {};
 
     if (action === "saveInquiry") {
@@ -264,6 +266,14 @@ function doPost(e) {
       message: "Invalid action: " + action,
     });
   } catch (error) {
+    const errorDetails = error && error.stack
+      ? error.stack
+      : error && error.message
+        ? error.message
+        : String(error);
+    console.error(
+      "doPost failed (action=" + (action || "unknown") + "): " + errorDetails,
+    );
     return createJsonResponse(createErrorResponse_(error));
   }
 }
@@ -494,9 +504,14 @@ function saveInquiry(payload) {
     INQUIRY_HISTORY_SHEET_NAME,
     INQUIRY_HISTORY_HEADERS,
   );
-
-  sheet.appendRow([
-    new Date(),
+  const savedAt = new Date();
+  const savedAtText = Utilities.formatDate(
+    savedAt,
+    sheet.getParent().getSpreadsheetTimeZone(),
+    "yyyy/MM/dd HH:mm:ss",
+  );
+  const values = [
+    savedAtText,
     payload.storeName || "",
     payload.loginEmail || "",
     payload.role || "",
@@ -512,12 +527,47 @@ function saveInquiry(payload) {
     payload.note || "",
     payload.customerMessage || "",
     payload.reservationCopy || "",
-  ]);
+  ];
+  const lock = LockService.getScriptLock();
+
+  lock.waitLock(10000);
+
+  let rowNumber;
+
+  try {
+    rowNumber = Math.max(sheet.getLastRow() + 1, 2);
+    sheet.getRange(rowNumber, 1).setValue(savedAtText);
+    sheet
+      .getRange(rowNumber, 2, 1, values.length - 1)
+      .setValues([values.slice(1)]);
+    SpreadsheetApp.flush();
+
+    const persistedValues = sheet
+      .getRange(rowNumber, 1, 1, values.length)
+      .getDisplayValues()[0];
+
+    if (
+      !/^\d{4}\/\d{2}\/\d{2}/.test(persistedValues[0]) ||
+      persistedValues[4] !== String(payload.modelName || "")
+    ) {
+      throw new Error("見積履歴の保存結果を確認できませんでした。");
+    }
+  } catch (error) {
+    if (rowNumber) {
+      sheet.getRange(rowNumber, 1, 1, values.length).clearContent();
+    }
+
+    throw error;
+  } finally {
+    lock.releaseLock();
+  }
 
   return {
     success: true,
     ok: true,
     message: "見積履歴を保存しました。",
+    rowNumber: rowNumber,
+    savedAt: savedAt.toISOString(),
   };
 }
 
