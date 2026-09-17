@@ -372,7 +372,7 @@ const preferredAndroidMakers = [
 ];
 
 const ANDROID_FIXED_REPAIR_PRICES = {
-  battery: 11000,
+  battery: 12000,
   chargePort: 16500,
   cameraLens: 11000,
   sleepButton: 15000,
