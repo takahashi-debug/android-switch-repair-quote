@@ -129,7 +129,7 @@ function WindowsRepairChoiceGrid({ value, onChange }: { value: string; onChange:
           >
             <span className="block break-words text-sm font-bold leading-6">{item.label}</span>
             <span className={`mt-1 block break-words text-xs font-semibold leading-5 ${selected ? "text-blue-100" : "text-slate-500"}`}>
-              症状・要望：{item.symptomGuide}
+              {item.symptomGuide}
             </span>
           </button>
         );
