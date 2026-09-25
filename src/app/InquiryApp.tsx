@@ -6166,7 +6166,7 @@ function createPcEstimate(form: FormState): PcEstimateDetails {
     if (!repair || repair.kind === "check") {
       customerMessage = `${subject}は、端末の状態や作業内容を確認後に料金をご案内します。`;
     } else if (repair.kind === "from") {
-      customerMessage = `${subject}は、${basePrice}からです。\n故障箇所や基板の状態によって料金が変動します。\n納期は${repair.leadTime}です。`;
+      customerMessage = `${subject}は、${basePrice}からです。\n端末の状態や作業内容によって料金が変動します。\n納期は${repair.leadTime}です。`;
     } else if (repair.kind === "parts") {
       const partsNote = repair.label === "SSD・HDD交換"
         ? "交換するSSDまたはHDDのパーツ原価が必要となります。\nパーツ原価と納期は、端末の型番と必要な容量を確認後にご案内します。"
