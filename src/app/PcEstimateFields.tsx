@@ -44,8 +44,11 @@ function WindowsPcFields({ form, onChange }: { form: PcEstimateFormValue; onChan
       <PcField label="端末タイプを選択" step="STEP 2" completed={Boolean(form.modelName)}>
         <ChoiceGrid options={[...WINDOWS_PC_DEVICE_TYPES]} value={form.modelName} onChange={(modelName) => onChange({ modelName, modelNumber: "", repairType: "" })} />
       </PcField>
-      <PcField label="修理内容を選択" step="STEP 3" completed={Boolean(form.repairType)}>
-        <ChoiceGrid options={WINDOWS_PC_REPAIR_PRICES.map((item) => item.label)} value={form.repairType} onChange={(repairType) => onChange({ repairType })} />
+      <PcField label="症状・要望に合う修理内容を選択" step="STEP 3" completed={Boolean(form.repairType)}>
+        <p className="mb-3 text-sm font-semibold leading-6 text-slate-600">
+          症状に近い項目を選んでください。修理内容が分からない場合は「その他」を選択してください。
+        </p>
+        <WindowsRepairChoiceGrid value={form.repairType} onChange={(repairType) => onChange({ repairType })} />
       </PcField>
     </>
   );
@@ -107,6 +110,30 @@ function ChoiceGrid({ options, value, onChange }: { options: string[]; value: st
           {option}
         </button>
       ))}
+    </div>
+  );
+}
+
+function WindowsRepairChoiceGrid({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <div className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3">
+      {WINDOWS_PC_REPAIR_PRICES.map((item) => {
+        const selected = value === item.label;
+        return (
+          <button
+            key={item.label}
+            type="button"
+            aria-pressed={selected}
+            onClick={() => onChange(item.label)}
+            className={`min-h-20 min-w-0 rounded-lg border px-4 py-3 text-left transition ${selected ? "border-blue-700 bg-blue-700 text-white" : "border-slate-300 bg-white text-slate-800 hover:border-blue-400 hover:bg-blue-50"}`}
+          >
+            <span className="block break-words text-sm font-bold leading-6">{item.label}</span>
+            <span className={`mt-1 block break-words text-xs font-semibold leading-5 ${selected ? "text-blue-100" : "text-slate-500"}`}>
+              症状・要望：{item.symptomGuide}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
