@@ -285,6 +285,7 @@ const categories: InquiryCategory[] = [
   "MacBook",
 ];
 const DEVELOPMENT_UNAVAILABLE_MESSAGE = "開発中です。現在は使用できません。";
+const WINDOWS_PC_STAFF_ACCESS_ENABLED = true;
 const orderStatuses: OrderStatus[] = ["受注", "検討"];
 const adminReportTypes = [
   "価格マスター修正",
@@ -8037,7 +8038,7 @@ function validateEstimateForm(form: FormState) {
 }
 
 function isAdminOnlyEstimateCategory(category: InquiryCategory) {
-  return category === "Windows PC";
+  return category === "Windows PC" && !WINDOWS_PC_STAFF_ACCESS_ENABLED;
 }
 
 function isSwitchUnitInputComplete(unit: SwitchUnitInput) {
