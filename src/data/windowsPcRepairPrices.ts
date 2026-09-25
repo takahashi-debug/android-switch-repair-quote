@@ -18,21 +18,23 @@ export type WindowsPcRepairPrice = {
   workTime: string;
 };
 
+const WINDOWS_PC_LEAD_TIME = "3日〜1週間程度";
+
 export const WINDOWS_PC_REPAIR_PRICES: WindowsPcRepairPrice[] = [
-  { label: "初期診断・症状確認", kind: "fixed", price: 5500, leadTime: "当日〜3日程度", workTime: "30分〜1時間程度" },
-  { label: "OS起動不良・システム修復", kind: "from", price: 13000, leadTime: "1日〜3日程度", workTime: "2〜4時間程度" },
-  { label: "Windows初期化・再セットアップ", kind: "from", price: 11000, leadTime: "1日〜3日程度", workTime: "3〜5時間程度" },
-  { label: "SSD・HDD交換", kind: "from", price: 27500, leadTime: "3日〜1週間程度", workTime: "2〜4時間程度" },
-  { label: "メモリ交換・増設", kind: "from", price: 14300, leadTime: "3日〜1週間程度", workTime: "30分〜1時間程度" },
-  { label: "バッテリー交換", kind: "from", price: 20000, leadTime: "1週間〜2週間程度", workTime: "1〜3時間程度" },
-  { label: "液晶・画面交換", kind: "from", price: 28000, leadTime: "1週間〜2週間程度", workTime: "2〜4時間程度" },
-  { label: "キーボード交換", kind: "from", price: 15000, leadTime: "1週間〜2週間程度", workTime: "2〜4時間程度" },
-  { label: "電源ジャック・充電口修理", kind: "from", price: 14300, leadTime: "1週間〜2週間程度", workTime: "2〜4時間程度" },
-  { label: "ファン交換・内部清掃", kind: "from", price: 12100, leadTime: "3日〜1週間程度", workTime: "1〜3時間程度" },
-  { label: "データ移行", kind: "from", price: 11000, leadTime: "当日〜3日程度", workTime: "2〜5時間程度" },
-  { label: "データ復旧", kind: "from", price: 30000, leadTime: "要確認", workTime: "要確認" },
-  { label: "マザーボード・基板修理", kind: "from", price: 39800, leadTime: "1週間〜3週間程度", workTime: "要確認" },
-  { label: "その他", kind: "check", leadTime: "要確認", workTime: "要確認" },
+  { label: "初期診断・症状確認", kind: "fixed", price: 5500, leadTime: WINDOWS_PC_LEAD_TIME, workTime: "30分〜1時間程度" },
+  { label: "OS起動不良・システム修復", kind: "from", price: 13000, leadTime: WINDOWS_PC_LEAD_TIME, workTime: "2〜4時間程度" },
+  { label: "Windows初期化・再セットアップ", kind: "from", price: 11000, leadTime: WINDOWS_PC_LEAD_TIME, workTime: "3〜5時間程度" },
+  { label: "SSD・HDD交換", kind: "from", price: 27500, leadTime: WINDOWS_PC_LEAD_TIME, workTime: "2〜4時間程度" },
+  { label: "メモリ交換・増設", kind: "from", price: 14300, leadTime: WINDOWS_PC_LEAD_TIME, workTime: "30分〜1時間程度" },
+  { label: "バッテリー交換", kind: "from", price: 20000, leadTime: WINDOWS_PC_LEAD_TIME, workTime: "1〜3時間程度" },
+  { label: "液晶・画面交換", kind: "from", price: 28000, leadTime: WINDOWS_PC_LEAD_TIME, workTime: "2〜4時間程度" },
+  { label: "キーボード交換", kind: "from", price: 15000, leadTime: WINDOWS_PC_LEAD_TIME, workTime: "2〜4時間程度" },
+  { label: "電源ジャック・充電口修理", kind: "from", price: 14300, leadTime: WINDOWS_PC_LEAD_TIME, workTime: "2〜4時間程度" },
+  { label: "ファン交換・内部清掃", kind: "from", price: 12100, leadTime: WINDOWS_PC_LEAD_TIME, workTime: "1〜3時間程度" },
+  { label: "データ移行", kind: "from", price: 11000, leadTime: WINDOWS_PC_LEAD_TIME, workTime: "2〜5時間程度" },
+  { label: "データ復旧", kind: "from", price: 30000, leadTime: WINDOWS_PC_LEAD_TIME, workTime: "要確認" },
+  { label: "マザーボード・基板修理", kind: "from", price: 39800, leadTime: WINDOWS_PC_LEAD_TIME, workTime: "要確認" },
+  { label: "その他", kind: "check", leadTime: WINDOWS_PC_LEAD_TIME, workTime: "要確認" },
 ];
 
 export function findWindowsPcRepairPrice(label: string) {

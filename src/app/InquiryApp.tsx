@@ -6163,18 +6163,19 @@ function createPcEstimate(form: FormState): PcEstimateDetails {
       ? [`作業費：${basePrice}`, "パーツ原価：要確認"]
       : [];
     const subject = `${manufacturer || "選択メーカー"}の${form.modelName || "PC"}の${form.repairType || "修理"}`;
+    const inspectionGuidance = "納期は3日〜1週間程度が目安です。\n端末をお預かりし、状態の確認・検証後に、正確なお見積り金額と納期をご案内いたします。";
     let customerMessage: string;
     if (!repair || repair.kind === "check") {
-      customerMessage = `${subject}は、端末の状態や作業内容を確認後に料金をご案内します。`;
+      customerMessage = `${subject}は、料金の確認が必要です。\n${inspectionGuidance}`;
     } else if (repair.kind === "from") {
-      customerMessage = `${subject}は、${basePrice}からです。\n端末の状態や作業内容によって料金が変動します。\n納期は${repair.leadTime}です。`;
+      customerMessage = `${subject}は、${basePrice}からです。\n端末の状態や作業内容によって料金が変動します。\n${inspectionGuidance}`;
     } else if (repair.kind === "parts") {
       const partsNote = repair.label === "SSD・HDD交換"
-        ? "交換するSSDまたはHDDのパーツ原価が必要となります。\nパーツ原価と納期は、端末の型番と必要な容量を確認後にご案内します。"
-        : "別途、交換部品のパーツ原価が必要となります。\nパーツ原価と納期は、端末の型番と部品の在庫状況を確認後にご案内します。";
-      customerMessage = `${subject}は、作業費が${basePrice}です。\n${partsNote}`;
+        ? "交換するSSDまたはHDDのパーツ原価が必要となります。\nパーツ原価は、端末の型番と必要な容量を確認後にご案内します。"
+        : "別途、交換部品のパーツ原価が必要となります。\nパーツ原価は、端末の型番と部品の在庫状況を確認後にご案内します。";
+      customerMessage = `${subject}は、作業費が${basePrice}です。\n${partsNote}\n${inspectionGuidance}`;
     } else {
-      customerMessage = `${subject}は、${basePrice}です。\n納期は${repair.leadTime}、作業時間は${repair.workTime}です。`;
+      customerMessage = `${subject}は、${basePrice}です。\n作業時間は${repair.workTime}です。\n${inspectionGuidance}`;
     }
     return {
       quote: {
