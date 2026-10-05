@@ -446,7 +446,7 @@ const SWITCH_BODY_OPTIONS = [
   {
     key: "batterySet",
     label: "バッテリー交換",
-    price: 2900,
+    price: 3900,
   },
   {
     key: "cleaningGrease",
