@@ -26,6 +26,11 @@ import {
   type MacBookRepairType,
 } from "../data/macbookRepairPrices";
 import { findWindowsPcRepairPrice } from "../data/windowsPcRepairPrices";
+import {
+  getRiversideChiakiBatteryOnlyAndroidModels,
+  getRiversideChiakiAndroidBatteryPrice,
+  isRiversideChiakiBatteryOnlyAndroidModel,
+} from "../data/riversideChiakiAndroidBatteryPrices";
 
 type OrderStatus = "受注" | "検討";
 type AppView = "estimate" | "reception";
@@ -603,14 +608,25 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
         : isAppliance
           ? `${form.category}修理見積り`
         : "Android修理見積り";
+  const storeName = authUser?.storeName || "未設定";
 
-  const androidRows = useMemo(
-    () =>
-      masterData.priceMaster
-        .filter((item) => !isInactiveReceptionStatus(item.receptionStatus))
-        .sort(compareSortOrder),
-    [masterData.priceMaster],
-  );
+  const androidRows = useMemo(() => {
+    const activeMasterRows = masterData.priceMaster.filter(
+      (item) => !isInactiveReceptionStatus(item.receptionStatus),
+    );
+    const storeOnlyRows = getRiversideChiakiBatteryOnlyAndroidModels(
+      storeName,
+    ).filter(
+      (candidate) =>
+        !activeMasterRows.some(
+          (item) =>
+            item.manufacturer === candidate.manufacturer &&
+            item.modelName === candidate.modelName,
+        ),
+    );
+
+    return [...activeMasterRows, ...storeOnlyRows].sort(compareSortOrder);
+  }, [masterData.priceMaster, storeName]);
 
   const switchRows = useMemo(
     () =>
@@ -767,6 +783,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
     return createAndroidRepairMenus({
       selectedAndroidModel,
       isOtherManufacturer: isOtherAndroidManufacturer,
+      storeName,
       repairItemMaster: masterData.repairItemMaster,
       androidModelRepairSettings: masterData.androidModelRepairSettings,
     });
@@ -775,6 +792,7 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
     masterData.androidModelRepairSettings,
     masterData.repairItemMaster,
     selectedAndroidModel,
+    storeName,
   ]);
 
   const switchModels = useMemo(
@@ -927,7 +945,6 @@ export default function InquiryApp({ initialData }: { initialData: InitialData }
     });
   }, [switchUnitIdsSignature, form.switchUnitInputs]);
 
-  const storeName = authUser?.storeName || "未設定";
   const loginEmail = authUser?.email || "未設定";
   const role = authUser?.role || "未設定";
   const isAdmin = authUser?.role === "admin";
@@ -9020,6 +9037,7 @@ function formatSwitchCustomerRangePrice(value: string) {
 function getAndroidRepairEstimate(
   item: AndroidPriceMasterItem,
   definition: AndroidRepairDefinition,
+  storeName: string,
 ) {
   if (definition.key === "screen") {
     const status = stringValue(item[definition.statusKey]);
@@ -9048,14 +9066,22 @@ function getAndroidRepairEstimate(
     };
   }
 
+  const storeSpecificPrice =
+    definition.key === "battery"
+      ? getRiversideChiakiAndroidBatteryPrice(storeName, item.modelName)
+      : undefined;
+  const fixedRepairPrice =
+    storeSpecificPrice ?? ANDROID_FIXED_REPAIR_PRICES[definition.key];
   const parsedStatus = parseAndroidFixedStatusValue(
     stringValue(item[definition.statusKey]),
-    ANDROID_FIXED_REPAIR_PRICES[definition.key],
+    fixedRepairPrice,
   );
   const status = parsedStatus.status;
   const estimatePrice =
-    normalizeManualPrice(parsedStatus.manualPrice) ||
-    stringValue(ANDROID_FIXED_REPAIR_PRICES[definition.key]);
+    storeSpecificPrice !== undefined
+      ? stringValue(storeSpecificPrice)
+      : normalizeManualPrice(parsedStatus.manualPrice) ||
+        stringValue(fixedRepairPrice);
 
   if (status === "非対応") {
     return {
@@ -9091,7 +9117,7 @@ function getAndroidRepairEstimate(
     stringValue(item[definition.statusKey]),
   );
 
-  if (manualPrice !== undefined) {
+  if (manualPrice !== undefined && storeSpecificPrice === undefined) {
     return {
       repairType: definition.label,
       price: manualPrice,
@@ -9113,14 +9139,20 @@ function getAndroidRepairEstimate(
 function createAndroidRepairMenus({
   selectedAndroidModel,
   isOtherManufacturer,
+  storeName,
   repairItemMaster,
   androidModelRepairSettings,
 }: {
   selectedAndroidModel?: AndroidPriceMasterItem;
   isOtherManufacturer: boolean;
+  storeName: string;
   repairItemMaster: RepairItemMasterItem[];
   androidModelRepairSettings: AndroidModelRepairSettingItem[];
 }): AndroidRepairMenuItem[] {
+  const isBatteryOnlyModel = isRiversideChiakiBatteryOnlyAndroidModel(
+    storeName,
+    selectedAndroidModel,
+  );
   const toMenu = (
     key: string,
     label: string,
@@ -9149,14 +9181,21 @@ function createAndroidRepairMenus({
     };
   };
 
-  const fixedMenus = androidRepairDefinitions.map((definition) => {
+  const fixedDefinitions = isBatteryOnlyModel
+    ? androidRepairDefinitions.filter((definition) => definition.key === "battery")
+    : androidRepairDefinitions;
+  const fixedMenus = fixedDefinitions.map((definition) => {
     const estimate = isOtherManufacturer
       ? getOtherAndroidRepairEstimate(definition.label, repairItemMaster)
       : selectedAndroidModel
-        ? getAndroidRepairEstimate(selectedAndroidModel, definition)
+        ? getAndroidRepairEstimate(selectedAndroidModel, definition, storeName)
         : undefined;
     return toMenu(`fixed-${definition.key}`, definition.label, estimate);
   });
+  if (isBatteryOnlyModel) {
+    return fixedMenus;
+  }
+
   const availableDynamicDefinitions = createAvailableDynamicAndroidRepairDefinitions(
     repairItemMaster,
     androidModelRepairSettings,
